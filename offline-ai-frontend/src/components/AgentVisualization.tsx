@@ -12,6 +12,7 @@
  * - Communication popup showing messages between connected agents
  * - Dark/light mode support
  * - Responsive layout
+ * - Animated visual effects and enhanced UI
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -417,6 +418,8 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
   useEffect(() => {
     const calculateContainerDimensions = () => {
       const allBoxes = Object.values(boxSizes);
+      if (allBoxes.length === 0) return; // Prevent calculation with empty array
+      
       const minX = Math.min(...allBoxes.map(box => box.x));
       const maxX = Math.max(...allBoxes.map(box => box.x + box.width));
       const minY = Math.min(...allBoxes.map(box => box.y));
@@ -427,13 +430,21 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
       const width = Math.max(maxX - minX + padding * 2, dimensions.width);
       const height = Math.max(maxY - minY + padding * 2, dimensions.height);
 
-      setContainerDimensions({
-        width,
-        height,
-        minX: minX - padding,
-        minY: minY - padding,
-        maxX: maxX + padding,
-        maxY: maxY + padding
+      setContainerDimensions(prev => {
+        // Only update if dimensions actually changed to prevent infinite loops
+        if (prev.width === width && prev.height === height && 
+            prev.minX === minX - padding && prev.minY === minY - padding) {
+          return prev;
+        }
+        
+        return {
+          width,
+          height,
+          minX: minX - padding,
+          minY: minY - padding,
+          maxX: maxX + padding,
+          maxY: maxY + padding
+        };
       });
     };
 
@@ -490,14 +501,94 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
           zIndex: 0
         }}
       >
+        {/* Animated data flow particles */}
+        {connections.map(connection => (
+          <g key={`particles-${connection.id}`}>
+            {[...Array(3)].map((_, i) => (
+              <circle
+                key={i}
+                r="2"
+                fill="url(#gradient)"
+                opacity="0.6"
+                className="animate-data-flow"
+                style={{
+                  animationDelay: `${i * 0.5}s`,
+                  animationDuration: '3s'
+                }}
+              >
+                <animateMotion
+                  dur="3s"
+                  repeatCount="indefinite"
+                  path={connection.path}
+                  begin={`${i * 0.5}s`}
+                />
+              </circle>
+            ))}
+          </g>
+        ))}
+        
+        {/* Gradient definitions */}
+        <defs>
+          <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
+            <stop offset="50%" stopColor="#8b5cf6" stopOpacity="1" />
+            <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.8" />
+          </linearGradient>
+          <linearGradient id="connectionGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.6" />
+          </linearGradient>
+          
+          {/* Message icon definition */}
+          <g id="messageIcon">
+            <rect 
+              x="0" 
+              y="0" 
+              width="16" 
+              height="12" 
+              rx="2" 
+              ry="2" 
+              fill={isDark ? '#4a4a4a' : '#888'}
+              stroke={isDark ? '#ffffff' : '#000000'}
+              strokeWidth="0.5"
+            />
+            <path 
+              d="M2 2 L6 6 L10 2" 
+              stroke={isDark ? '#ffffff' : '#000000'} 
+              strokeWidth="1" 
+              fill="none"
+            />
+            <circle 
+              cx="12" 
+              cy="3" 
+              r="1.5" 
+              fill={isDark ? '#ffffff' : '#000000'}
+            />
+          </g>
+        </defs>
+        
         {connections.map(connection => (
           <g key={connection.id} className="pointer-events-auto">
+            {/* Glow effect */}
             <path
               d={connection.path}
-              stroke={isDark ? '#4a4a4a' : '#888'}
+              stroke="url(#connectionGradient)"
+              strokeWidth={selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 8 : 4}
+              fill="none"
+              className="cursor-pointer transition-all duration-300"
+              opacity="0.3"
+              filter="blur(2px)"
+            />
+            
+            {/* Main connection line */}
+            <path
+              d={connection.path}
+              stroke={selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 
+                "url(#connectionGradient)" : (isDark ? '#4a4a4a' : '#888')}
               strokeWidth={selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 4 : 2}
               fill="none"
-              className="cursor-pointer transition-all duration-200"
+              className="cursor-pointer transition-all duration-300"
+              strokeDasharray={selectedConnection?.id === connection.id || hoveredConnection === connection.id ? "10,5" : "0"}
               onMouseEnter={() => setHoveredConnection(connection.id)}
               onMouseLeave={() => setHoveredConnection(null)}
               onClick={(e) => {
@@ -507,12 +598,11 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
                 setSelectedConnection(connection);
               }}
             />
-            <circle
-              cx={connection.centerPoint.x}
-              cy={connection.centerPoint.y}
-              r={selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 6 : 4}
-              fill={isDark ? '#4a4a4a' : '#888'}
-              className="cursor-pointer transition-all duration-200"
+            
+            {/* Message icon at connection center point */}
+            <g
+              transform={`translate(${connection.centerPoint.x - 8}, ${connection.centerPoint.y - 6})`}
+              className="cursor-pointer transition-all duration-300"
               onMouseEnter={() => setHoveredConnection(connection.id)}
               onMouseLeave={() => setHoveredConnection(null)}
               onClick={(e) => {
@@ -521,7 +611,16 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
                 e.stopPropagation();
                 setSelectedConnection(connection);
               }}
-            />
+            >
+              <use 
+                href="#messageIcon" 
+                className={`transition-all duration-300 ${selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 'animate-pulse' : ''}`}
+                style={{
+                  filter: selectedConnection?.id === connection.id || hoveredConnection === connection.id ? 
+                    'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))' : 'none'
+                }}
+              />
+            </g>
           </g>
         ))}
       </svg>
@@ -740,70 +839,127 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
    * Individual agent box component
    * Displays agent messages and handles interactions
    */
-  const AgentBox = ({ id, title, type }: { id: string; title: string; type: AIBlock['type'] }) => (
-    <div 
-      className={`absolute rounded-lg border-2 ${isDark ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'} shadow-lg flex flex-col`}
-      style={{ 
-        width: boxSizes[id].width, 
-        height: boxSizes[id].height,
-        left: boxSizes[id].x,
-        top: boxSizes[id].y
-      }}
-    >
+  const AgentBox = ({ id, title, type }: { id: string; title: string; type: AIBlock['type'] }) => {
+    const getAgentColor = (agentType: AIBlock['type']) => {
+      switch (agentType) {
+        case 'coder': return 'from-green-500 to-emerald-600';
+        case 'tester': return 'from-yellow-500 to-orange-600';
+        case 'coordinator': return 'from-blue-500 to-indigo-600';
+        case 'runner': return 'from-purple-500 to-pink-600';
+        default: return 'from-gray-500 to-gray-600';
+      }
+    };
+
+    const getAgentIcon = (agentType: AIBlock['type']) => {
+      switch (agentType) {
+        case 'coder': return '💻';
+        case 'tester': return '🧪';
+        case 'coordinator': return '🎯';
+        case 'runner': return '🏃';
+        default: return '🤖';
+      }
+    };
+
+    return (
       <div 
-        className={`p-3 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} font-semibold select-none cursor-move flex-shrink-0`}
-        onMouseDown={(e) => startDrag(e, id)}
+        className={`absolute rounded-xl border-2 backdrop-blur-sm shadow-2xl flex flex-col transition-all duration-300 hover:scale-105 hover:shadow-3xl animate-scale-in ${
+          isDark ? 'border-gray-600/50 bg-gray-800/80' : 'border-gray-300/50 bg-white/80'
+        }`}
+        style={{ 
+          width: boxSizes[id].width, 
+          height: boxSizes[id].height,
+          left: boxSizes[id].x,
+          top: boxSizes[id].y,
+          animationDelay: `${Object.keys(boxSizes).indexOf(id) * 0.1}s`
+        }}
       >
-        {title}
-      </div>
-      <div className="flex-1 overflow-y-auto p-3 select-text">
-        {getBlocks(type).map((block, index) => {
-          const content = extractContent(block.content);
-          if (!content) return null;
-          
-          return (
-            <div key={block.id} className="mb-3">
-              <pre className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'} whitespace-pre-wrap font-mono bg-opacity-10 ${
-                isDark ? 'bg-gray-700' : 'bg-gray-100'
-              } p-2 rounded overflow-x-auto`}>
-                {content}
-              </pre>
-              <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} mt-1`}>
-                {new Date(block.timestamp).toLocaleTimeString()}
+        {/* Animated header with gradient */}
+        <div 
+          className={`p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200/50'} font-semibold select-none cursor-move flex-shrink-0 relative overflow-hidden`}
+          onMouseDown={(e) => startDrag(e, id)}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-r ${getAgentColor(type)} opacity-10 animate-pulse`}></div>
+          <div className="relative z-10 flex items-center gap-3">
+            <span className="text-2xl animate-float">{getAgentIcon(type)}</span>
+            <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-bold">
+              {title}
+            </span>
+          </div>
+          <div className="absolute top-0 right-0 w-2 h-full bg-gradient-to-b from-transparent via-blue-500/30 to-transparent animate-pulse"></div>
+        </div>
+        
+        {/* Content area with animated messages */}
+        <div className="flex-1 overflow-y-auto p-4 select-text relative">
+          {getBlocks(type).length === 0 ? (
+            <div className="flex items-center justify-center h-full text-center">
+              <div className="animate-pulse">
+                <div className="text-4xl mb-2">⏳</div>
+                <div className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Waiting for messages...
+                </div>
               </div>
             </div>
-          );
-        })}
+          ) : (
+            getBlocks(type).map((block, index) => {
+              const content = extractContent(block.content);
+              if (!content) return null;
+              
+              return (
+                <div key={block.id} className="mb-4 animate-slide-in-up" style={{ animationDelay: `${index * 0.1}s` }}>
+                  <div className={`relative rounded-lg p-3 transition-all duration-300 hover:scale-105 ${
+                    isDark ? 'bg-gray-700/50 border border-gray-600/30' : 'bg-gray-100/50 border border-gray-300/30'
+                  } backdrop-blur-sm`}>
+                    <pre className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'} whitespace-pre-wrap font-mono overflow-x-auto`}>
+                      {content}
+                    </pre>
+                    <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} mt-2 flex items-center gap-2`}>
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                      {new Date(block.timestamp).toLocaleTimeString()}
+                    </div>
+                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-purple-500 rounded-l-lg"></div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        <ResizeHandle boxId={id} />
       </div>
-      <ResizeHandle boxId={id} />
-    </div>
-  );
+    );
+  };
 
   return (
-    <div className="w-full h-full flex flex-col">
+    <div className="w-full h-full flex flex-col relative overflow-hidden">
+      {/* Animated background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/5 via-purple-900/5 to-cyan-900/5 animate-gradient-x"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,rgba(59,130,246,0.1)_0%,transparent_50%),radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.1)_0%,transparent_50%)] animate-pulse"></div>
+      
       {/* Prompt Input Section */}
-      <div className={`p-4 ${isDark ? 'bg-gray-800' : 'bg-gray-100'} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0`}>
+      <div className={`p-4 ${isDark ? 'bg-gray-800/80' : 'bg-gray-100/80'} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0 backdrop-blur-sm relative z-10`}>
         <div className="flex gap-2 max-w-3xl mx-auto">
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Enter your prompt for the Coordinator AI..."
-            className={`flex-1 p-2 rounded ${
-              isDark 
-                ? 'bg-gray-700 text-white placeholder-gray-400' 
-                : 'bg-white text-gray-900 placeholder-gray-500'
-            }`}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                if (prompt.trim() && onPromptSubmit) {
-                  onPromptSubmit(prompt.trim());
-                  setPrompt('');
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Enter your prompt for the Coordinator AI..."
+              className={`w-full p-3 rounded-lg border-2 transition-all duration-300 focus:scale-105 ${
+                isDark 
+                  ? 'bg-white/95 text-black placeholder-gray-600 border-gray-600 focus:border-blue-500 focus:shadow-lg focus:shadow-blue-500/25' 
+                  : 'bg-white/95 text-black placeholder-gray-500 border-gray-300 focus:border-blue-500 focus:shadow-lg focus:shadow-blue-500/25'
+              } backdrop-blur-sm`}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (prompt.trim() && onPromptSubmit) {
+                    onPromptSubmit(prompt.trim());
+                    setPrompt('');
+                  }
                 }
-              }
-            }}
-          />
+              }}
+            />
+            <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-blue-500/20 to-purple-500/20 opacity-0 transition-opacity duration-300 pointer-events-none"></div>
+          </div>
           <button
             type="button"
             onClick={(e) => {
@@ -813,23 +969,27 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
                 setPrompt('');
               }
             }}
-            className={`px-4 py-2 rounded ${
+            className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg relative overflow-hidden group ${
               isDark 
-                ? 'bg-blue-600 hover:bg-blue-700' 
-                : 'bg-blue-500 hover:bg-blue-600'
+                ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 shadow-blue-500/25' 
+                : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 shadow-blue-500/25'
             } text-white`}
           >
-            Send
+            <span className="relative z-10 flex items-center gap-2">
+              <span className="text-lg">🚀</span>
+              Send
+            </span>
+            <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
           </button>
         </div>
       </div>
 
       {/* Main Visualization Container */}
-      <div className="flex-1 overflow-auto p-4" ref={containerRef}>
+      <div className="flex-1 overflow-auto p-4 relative z-10" ref={containerRef}>
         <div 
-          className={`relative rounded-lg border-2 ${
-            isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-300 bg-white/50'
-          }`}
+          className={`relative rounded-xl border-2 backdrop-blur-sm transition-all duration-500 ${
+            isDark ? 'border-gray-700/50 bg-gray-900/30' : 'border-gray-300/50 bg-white/30'
+          } shadow-2xl`}
           style={{
             width: containerDimensions.width,
             height: containerDimensions.height,
@@ -838,6 +998,11 @@ const AgentVisualization: React.FC<AgentVisualizationProps> = ({
           }}
           onClick={() => setSelectedConnection(null)}
         >
+          {/* Animated grid background */}
+          <div className="absolute inset-0 opacity-20">
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.1)_1px,transparent_1px)] bg-[size:50px_50px] animate-pulse"></div>
+          </div>
+          
           <ConnectionLines />
           <div className="relative z-10">
             <AgentBox id="coder" title="Coder Agent (Mistral)" type="coder" />

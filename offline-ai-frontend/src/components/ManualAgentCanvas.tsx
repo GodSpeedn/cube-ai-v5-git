@@ -119,6 +119,14 @@ const ManualAgentCanvas: React.FC<ManualAgentCanvasProps> = ({ isDark }) => {
   const [resizingPopup, setResizingPopup] = useState<{ id: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
   const [draggingPopup, setDraggingPopup] = useState<{ id: string; offsetX: number; offsetY: number }>();
   
+  // GitHub upload modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadProjectInfo, setUploadProjectInfo] = useState<any>(null);
+  const [uploadingToGithub, setUploadingToGithub] = useState(false);
+  const [projectFiles, setProjectFiles] = useState<any[]>([]);
+  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  
   const canvasRef = useRef<HTMLDivElement>(null);
   const scrollableCanvasRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -180,6 +188,7 @@ const ManualAgentCanvas: React.FC<ManualAgentCanvasProps> = ({ isDark }) => {
     });
     return bounds;
   }, [boxes]);
+
   
   // Convert screen coordinates to canvas coordinates
   const screenToCanvasCoords = (screenX: number, screenY: number) => {
@@ -573,6 +582,40 @@ Always provide clear, actionable results and communicate effectively with other 
             toAgent: agentIdToName.get(msg.to_agent) || msg.to_agent
           }));
           setAgentMessages(initialMessages);
+          
+          // Check if project is ready for GitHub upload and show confirmation
+          if (data.github_upload && data.github_upload.ready_for_upload) {
+            const projectInfo = data.github_upload.project_info;
+            
+            // Small delay to ensure UI is updated
+            setTimeout(async () => {
+              // Show modal instead of window.confirm
+              const projectInfoWithId = {
+                ...projectInfo,
+                conversation_id: data.conversation_id  // Add conversation_id from response
+              };
+              setUploadProjectInfo(projectInfoWithId);
+              setShowUploadModal(true);
+              
+              // Fetch project files
+              setLoadingFiles(true);
+              try {
+                const filesResponse = await fetch(`http://localhost:8001/get-project-files/${data.conversation_id}`);
+                if (filesResponse.ok) {
+                  const filesData = await filesResponse.json();
+                  setProjectFiles(filesData.files || []);
+                  // Auto-select first file
+                  if (filesData.files && filesData.files.length > 0) {
+                    setSelectedFile(filesData.files[0]);
+                  }
+                }
+              } catch (error) {
+                console.error('Failed to load project files:', error);
+              } finally {
+                setLoadingFiles(false);
+              }
+            }, 500); // 500ms delay to ensure UI is ready
+          }
         } else {
           setAgentMessages([{
             id: 'loading-1',
@@ -954,6 +997,62 @@ Always provide clear, actionable results and communicate effectively with other 
     reader.readAsText(file);
   };
 
+  const handleGitHubUpload = async () => {
+    if (!uploadProjectInfo?.conversation_id) return;
+    
+    setUploadingToGithub(true);
+    
+    try {
+      const uploadResponse = await fetch('http://localhost:8001/upload-project-to-github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: uploadProjectInfo.conversation_id })
+      });
+      
+      if (uploadResponse.ok) {
+        const uploadResult = await uploadResponse.json();
+        setAgentMessages(prev => [...prev, {
+          id: `github-${Date.now()}`,
+          agentId: 'system',
+          agentType: 'system',
+          agentName: 'GitHub',
+          content: `✅ Successfully uploaded to GitHub!\n\n🔗 Repository: ${uploadResult.repo_url}\n📦 Files: ${uploadResult.files_uploaded}`,
+          timestamp: new Date().toISOString(),
+          fromAgent: 'System',
+          toAgent: 'User'
+        }]);
+        setShowUploadModal(false);
+        setUploadProjectInfo(null);
+      } else {
+        const errorData = await uploadResponse.json();
+        setAgentMessages(prev => [...prev, {
+          id: `github-error-${Date.now()}`,
+          agentId: 'system',
+          agentType: 'system',
+          agentName: 'GitHub',
+          content: `❌ Upload failed: ${errorData.detail}`,
+          timestamp: new Date().toISOString(),
+          fromAgent: 'System',
+          toAgent: 'User'
+        }]);
+      }
+    } catch (error) {
+      console.error('GitHub upload error:', error);
+      setAgentMessages(prev => [...prev, {
+        id: `github-error-${Date.now()}`,
+        agentId: 'system',
+        agentType: 'system',
+        agentName: 'GitHub',
+        content: `❌ Upload error: ${error}`,
+        timestamp: new Date().toISOString(),
+        fromAgent: 'System',
+        toAgent: 'User'
+      }]);
+    } finally {
+      setUploadingToGithub(false);
+    }
+  };
+
   const handleClearCanvas = () => {
     const ok = window.confirm('Clear canvas? This will remove all agents, connections, and messages.');
     if (!ok) return;
@@ -1193,13 +1292,33 @@ Always provide clear, actionable results and communicate effectively with other 
                 {(() => {
                   const lastMessage = boxMessages[boxMessages.length - 1];
                   const content = lastMessage?.content || '';
-                  return content.length > 150 
-                    ? content.substring(0, 150) + '...'
+                  const isLongMessage = content.length > 100;
+                  const displayContent = isLongMessage 
+                    ? content.substring(0, 100) + '...' 
                     : content;
+                  
+                  // Determine message direction
+                  const isOutgoing = lastMessage?.fromAgent === box.agentType || lastMessage?.fromAgent === 'system';
+                  const directionIcon = isOutgoing ? '📤' : '📥';
+                  
+                  return (
+                    <div className="message-container">
+                      <div className="message-header">
+                        <span className="direction-icon" title={isOutgoing ? 'Outgoing' : 'Incoming'}>{directionIcon}</span>
+                        <span className="message-preview">{displayContent}</span>
+                      </div>
+                      {isLongMessage && (
+                        <div className="message-tooltip" title={content}>
+                          <span className="tooltip-icon">ⓘ</span>
+                        </div>
+                      )}
+                    </div>
+                  );
                 })()}
               </div>
               <div className="output-meta">
-                {boxMessages.length} message{boxMessages.length !== 1 ? 's' : ''} • {new Date(boxMessages[boxMessages.length - 1]?.timestamp || Date.now()).toLocaleTimeString()}
+                <span className="message-count">{boxMessages.length} msg{boxMessages.length !== 1 ? 's' : ''}</span>
+                <span className="message-time">{new Date(boxMessages[boxMessages.length - 1]?.timestamp || Date.now()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
               </div>
             </div>
           )}
@@ -1317,13 +1436,13 @@ Always provide clear, actionable results and communicate effectively with other 
 
         <div className="control-group" style={{ flex: 1, minWidth: 300 }}>
           {/* Status Indicators */}
-          <div className={`status-indicator ${wsConnected ? 'status-live' : 'status-connecting'}`}>
+          <div className={`status-indicator ${wsConnected ? 'status-live' : 'status-connecting'}`} style={{ display: 'none' }}>
             <span>{wsConnected ? '🔗' : '⏳'}</span>
             <span>{wsConnected ? 'Live' : 'Connecting'}</span>
           </div>
           
           {isOnlineMode && onlineServiceConnected && (
-            <div className="status-indicator status-connected">
+            <div className="status-indicator status-connected" style={{ display: 'none' }}>
               <span>🟢</span>
               <span>Online</span>
             </div>
@@ -1568,6 +1687,120 @@ Always provide clear, actionable results and communicate effectively with other 
               </div>
             </div>
             
+            {/* Agent-to-Agent Conversation */}
+            {(() => {
+              // Filter messages between the two connected agents
+              // Match by role name (primary) or box ID (fallback)
+              const connectionMessages = agentMessages.filter(msg => {
+                const fromRole = fromBox!.role || fromBox!.agentType;
+                const toRole = toBox!.role || toBox!.agentType;
+                
+                // Check if message is between these two agents (in either direction)
+                // Try matching by role name first, then by box ID
+                return (
+                  (msg.fromAgent === fromRole && msg.toAgent === toRole) ||
+                  (msg.fromAgent === toRole && msg.toAgent === fromRole) ||
+                  (msg.fromAgent === fromBox!.id && msg.toAgent === toBox!.id) ||
+                  (msg.fromAgent === toBox!.id && msg.toAgent === fromBox!.id)
+                );
+              });
+              
+              return (
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ 
+                    fontSize: '0.875rem', 
+                    color: isDark ? '#9ca3af' : '#6b7280', 
+                    marginBottom: '0.5rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}>
+                    💬 Agent Conversation
+                    <span style={{ 
+                      fontSize: '0.75rem', 
+                      background: isDark ? 'rgba(55, 65, 81, 0.8)' : 'rgba(243, 244, 246, 0.8)',
+                      padding: '0.125rem 0.375rem',
+                      borderRadius: '0.25rem',
+                      color: isDark ? '#d1d5db' : '#4b5563'
+                    }}>
+                      {connectionMessages.length} message{connectionMessages.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  
+                  {connectionMessages.length > 0 ? (
+                    <div style={{ 
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      background: isDark ? 'rgba(55, 65, 81, 0.3)' : 'rgba(243, 244, 246, 0.3)',
+                      borderRadius: '0.5rem',
+                      padding: '0.5rem',
+                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`
+                    }}>
+                      {connectionMessages.map((message, index) => (
+                        <div key={message.id || index} style={{ 
+                          marginBottom: index < connectionMessages.length - 1 ? '0.75rem' : '0',
+                          padding: '0.5rem',
+                          background: isDark ? 'rgba(31, 41, 55, 0.5)' : 'rgba(255, 255, 255, 0.5)',
+                          borderRadius: '0.375rem',
+                          border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`
+                        }}>
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            marginBottom: '0.25rem'
+                          }}>
+                            <span style={{ 
+                              fontSize: '0.75rem', 
+                              fontWeight: 600,
+                              color: isDark ? '#fbbf24' : '#d97706'
+                            }}>
+                              {message.fromAgent} → {message.toAgent}
+                            </span>
+                            <span style={{ 
+                              fontSize: '0.625rem', 
+                              color: isDark ? '#9ca3af' : '#6b7280'
+                            }}>
+                              {new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                          </div>
+                          <div style={{ 
+                            fontSize: '0.75rem',
+                            lineHeight: 1.4,
+                            color: isDark ? '#e5e7eb' : '#374151',
+                            wordWrap: 'break-word',
+                            maxHeight: '60px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical'
+                          }}>
+                            {message.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      padding: '1rem',
+                      textAlign: 'center',
+                      background: isDark ? 'rgba(55, 65, 81, 0.3)' : 'rgba(243, 244, 246, 0.3)',
+                      borderRadius: '0.5rem',
+                      border: `1px dashed ${isDark ? '#374151' : '#e5e7eb'}`,
+                      color: isDark ? '#9ca3af' : '#6b7280',
+                      fontSize: '0.8rem'
+                    }}>
+                      No messages yet between these agents
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.25rem', opacity: 0.8 }}>
+                        Messages will appear here when agents communicate
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.875rem', color: isDark ? '#9ca3af' : '#6b7280', marginBottom: '0.5rem' }}>Connection ID</div>
               <div style={{ 
@@ -1609,6 +1842,7 @@ Always provide clear, actionable results and communicate effectively with other 
           </div>
         );
       })()}
+
       
       {/* Empty state when no agents */}
       {boxes.length === 0 && (
@@ -1617,6 +1851,161 @@ Always provide clear, actionable results and communicate effectively with other 
           <div className="empty-title">No Agents Created</div>
           <div className="empty-description">
             Click "Add Agent" to create your first agent and start building workflows
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Upload Confirmation Modal */}
+      {showUploadModal && uploadProjectInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Upload to GitHub
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Review your generated files before uploading
+              </p>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-hidden flex flex-col">
+              {/* Project Info */}
+              <div className="px-6 pt-4 pb-2">
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1 text-sm">
+                    Project: {uploadProjectInfo.project_name}
+                  </h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                    {projectFiles.length} files ready to upload
+                  </p>
+                </div>
+              </div>
+
+              {/* File Explorer */}
+              <div className="flex-1 flex overflow-hidden px-6 pb-4">
+                {/* File List */}
+                <div className="w-1/3 border-r border-gray-200 dark:border-gray-700 pr-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-2 text-sm">
+                    Files
+                  </h3>
+                  <div className="space-y-1 overflow-y-auto max-h-96">
+                    {loadingFiles ? (
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Loading files...</div>
+                    ) : projectFiles.length === 0 ? (
+                      <div className="text-sm text-gray-500 dark:text-gray-400">No files found</div>
+                    ) : (
+                      projectFiles.map((file, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setSelectedFile(file)}
+                          className={`w-full text-left px-3 py-2 rounded text-sm flex items-center space-x-2 transition-colors ${
+                            selectedFile?.path === file.path
+                              ? 'bg-blue-100 dark:bg-blue-900 text-blue-900 dark:text-blue-100'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          }`}
+                        >
+                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/>
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{file.name}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">{file.path}</div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* File Content Preview */}
+                <div className="flex-1 pl-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-2 text-sm">
+                    Preview
+                  </h3>
+                  {selectedFile ? (
+                    <div className="h-96 overflow-auto bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 p-4">
+                      <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+                        <div className="text-xs font-mono text-gray-600 dark:text-gray-400">{selectedFile.path}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                          {selectedFile.size} bytes • {selectedFile.type}
+                        </div>
+                      </div>
+                      <pre className="text-xs font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200">
+                        {selectedFile.content}
+                      </pre>
+                    </div>
+                  ) : (
+                    <div className="h-96 flex items-center justify-center bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                      <div className="text-center text-gray-500 dark:text-gray-400">
+                        <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/>
+                        </svg>
+                        <p className="text-sm">Select a file to preview</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Warning Notice */}
+              <div className="px-6 pb-4">
+                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700">
+                <div className="flex items-start">
+                  <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-500 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                      Repository Visibility
+                    </p>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                      This will create a <strong>public</strong> repository visible to everyone on GitHub.
+                    </p>
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setUploadProjectInfo(null);
+                  setProjectFiles([]);
+                  setSelectedFile(null);
+                }}
+                disabled={uploadingToGithub}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGitHubUpload}
+                disabled={uploadingToGithub}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 flex items-center"
+              >
+                {uploadingToGithub ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clipRule="evenodd"/>
+                    </svg>
+                    Upload to GitHub
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

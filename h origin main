@@ -1,5 +1,0 @@
-[33mdfa26f1[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Major update: Enhanced AI agent system with frontend integration, git integration, and improved workflow management
-[33mb34df20[m[33m ([m[1;31morigin/main[m[33m)[m Add safe env_example.txt with placeholder API keys
-[33m63dbe78[m Update backend and frontend components with manual agent fixes and websocket service
-[33m9ccdfd0[m Add secure API key management with environment variables and comprehensive setup guide
-[33me59000e[m Fix security: Remove hardcoded API keys and use environment variables

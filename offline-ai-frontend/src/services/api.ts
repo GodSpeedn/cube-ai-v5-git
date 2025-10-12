@@ -366,7 +366,14 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 // ONLINE AGENT SERVICE API FUNCTIONS
 // =============================================================================
 
-const ONLINE_API_BASE_URL = 'http://localhost:8000';
+const ONLINE_API_BASE_URL = 'http://localhost:8001';
+
+// Simple headers - API keys are managed in the backend
+function getOnlineApiHeaders(): HeadersInit {
+  return {
+    'Content-Type': 'application/json'
+  };
+}
 
 export interface OnlineAgent {
   id: string;
@@ -399,11 +406,9 @@ export interface OnlineWorkflowResponse {
  */
 export async function testOnlineServiceConnection(): Promise<boolean> {
   try {
-    const response = await fetch(`${ONLINE_API_BASE_URL}/combined-health`, {
+    const response = await fetch(`${ONLINE_API_BASE_URL}/health`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
+      headers: getOnlineApiHeaders()
     });
 
     if (response.ok) {
@@ -425,15 +430,13 @@ export async function testOnlineServiceConnection(): Promise<boolean> {
  */
 export async function getOnlineModels(): Promise<any> {
   const endpoints = [
-    `${ONLINE_API_BASE_URL}/online-models`,
-    `${ONLINE_API_BASE_URL}/online/models`,
-    `${ONLINE_API_BASE_URL}/models`
+    `${ONLINE_API_BASE_URL}/models` // online service on port 8001
   ];
   
   for (const endpoint of endpoints) {
     try {
       console.log('Trying endpoint:', endpoint);
-      const response = await fetch(endpoint);
+      const response = await fetch(endpoint, { headers: getOnlineApiHeaders() });
       console.log('Response status:', response.status);
       
       if (response.ok) {
@@ -490,11 +493,9 @@ export async function getOnlineModels(): Promise<any> {
  */
 export async function runOnlineWorkflow(request: OnlineWorkflowRequest): Promise<OnlineWorkflowResponse> {
   try {
-    const response = await fetch(`${ONLINE_API_BASE_URL}/run-online-workflow`, {
+    const response = await fetch(`${ONLINE_API_BASE_URL}/run-workflow`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getOnlineApiHeaders(),
       body: JSON.stringify(request)
     });
 
@@ -515,7 +516,7 @@ export async function runOnlineWorkflow(request: OnlineWorkflowRequest): Promise
  */
 export async function getOnlineWorkflowStatus(workflowId: string): Promise<any> {
   try {
-    const response = await fetch(`${ONLINE_API_BASE_URL}/online/workflow-status/${workflowId}`);
+    const response = await fetch(`${ONLINE_API_BASE_URL}/workflow-status/${workflowId}`, { headers: getOnlineApiHeaders() });
     if (!response.ok) throw new Error('Failed to get workflow status');
     return await response.json();
   } catch (error) {
@@ -529,7 +530,7 @@ export async function getOnlineWorkflowStatus(workflowId: string): Promise<any> 
  */
 export async function getOnlineConversations(): Promise<Conversation[]> {
   try {
-    const response = await fetch(`${ONLINE_API_BASE_URL}/online/conversations`);
+    const response = await fetch(`${ONLINE_API_BASE_URL}/conversations`);
     if (!response.ok) throw new Error('Failed to fetch online conversations');
     return await response.json();
   } catch (error) {
@@ -543,7 +544,7 @@ export async function getOnlineConversations(): Promise<Conversation[]> {
  */
 export async function getOnlineConversation(conversationId: string): Promise<ConversationDetail> {
   try {
-    const response = await fetch(`${ONLINE_API_BASE_URL}/online/conversations/${conversationId}`);
+    const response = await fetch(`${ONLINE_API_BASE_URL}/conversations/${conversationId}`);
     if (!response.ok) throw new Error('Failed to get online conversation');
     return await response.json();
   } catch (error) {

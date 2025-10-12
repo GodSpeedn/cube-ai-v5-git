@@ -22,6 +22,16 @@ import uuid
 from dotenv import load_dotenv
 load_dotenv()
 
+# Load API keys from keys.txt
+try:
+    from load_keys import load_keys_from_file
+    load_keys_from_file()
+    print("[OK] API keys loaded from keys.txt")
+except ImportError:
+    print("[WARN] load_keys.py not found, using environment variables only")
+except Exception as e:
+    print(f"[ERROR] Error loading keys.txt: {e}")
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
@@ -44,7 +54,7 @@ def detect_gpu():
     try:
         result = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
         if result.returncode == 0:
-            print("✅ GPU detected - using GPU acceleration")
+            print("[OK] GPU detected - using GPU acceleration")
             return {
                 "num_gpu": 1,  # Use 1 GPU
                 "num_thread": 8,  # Number of CPU threads
@@ -55,7 +65,7 @@ def detect_gpu():
                 "num_ctx": 4096,  # Context window size
             }
         else:
-            print("⚠️ GPU not detected - using CPU only")
+            print("[WARN] GPU not detected - using CPU only")
             return {
                 "num_gpu": 0,  # No GPU
                 "num_thread": 8,  # Number of CPU threads
@@ -66,7 +76,7 @@ def detect_gpu():
                 "num_ctx": 4096,
             }
     except Exception as e:
-        print(f"⚠️ Could not detect GPU: {e} - using CPU only")
+        print(f"[WARN] Could not detect GPU: {e} - using CPU only")
         return {
             "num_gpu": 0,  # No GPU
             "num_thread": 8,  # Number of CPU threads
@@ -215,19 +225,14 @@ db_integration = SafeDatabaseIntegration()
 # =============================================================================
 # ENUMS AND DATA MODELS
 # =============================================================================
-class MessageType(Enum):
-    """
-    What: Different types of messages agents can send to each other
-    Why: So agents know how to handle different kinds of messages
-    Can I change: YES - you can add more message types like "FEEDBACK", "UPDATE", etc.
-    """
-    TASK = "task"        # "Do this work for me"
-    DATA = "data"        # "Here's some information"
-    REQUEST = "request"  # "I need something from you"
-    RESPONSE = "response" # "Here's your answer"
-    ERROR = "error"      # "Something went wrong"
-    STATUS = "status"    # "Here's my current status"
-    REVIEW = "review"    # "Review generated code or tests"
+# Message types as string constants
+TASK = "task"
+DATA = "data"
+REQUEST = "request"
+RESPONSE = "response"
+ERROR = "error"
+STATUS = "status"
+REVIEW = "review"
 
 # =============================================================================
 # AGENT MESSAGE - THE WAY AGENTS TALK TO EACH OTHER
@@ -241,7 +246,7 @@ class AgentMessage(BaseModel):
     id: str                              # Unique ID for this message (like email ID)
     from_agent: str                      # Who sent this message
     to_agent: str                        # Who should receive this message
-    message_type: MessageType            # What kind of message is this
+    message_type: str                    # What kind of message is this
     content: str                         # The actual message content
     metadata: Dict[str, Any] = {}        # Extra information (you can add anything here)
     timestamp: datetime = datetime.now() # When was this message sent
@@ -351,13 +356,18 @@ class BaseAgent(ABC):
         self.llm = OllamaLLM(model=model_name, **final_config)
         
         # Message handling - maps message types to handler functions
-        self.message_handlers: Dict[MessageType, Callable] = {
-            MessageType.TASK: self.handle_task,
-            MessageType.DATA: self.handle_data,
-            MessageType.REQUEST: self.handle_request,
-            MessageType.RESPONSE: self.handle_response,
-            MessageType.ERROR: self.handle_error,
-            MessageType.STATUS: self.handle_status
+        # Initialize message handlers after the class is fully defined
+        self._init_message_handlers()
+    
+    def _init_message_handlers(self):
+        """Initialize message handlers after the class is fully defined"""
+        self.message_handlers: Dict[str, Callable] = {
+            TASK: self.handle_task,
+            DATA: self.handle_data,
+            REQUEST: self.handle_request,
+            RESPONSE: self.handle_response,
+            ERROR: self.handle_error,
+            STATUS: self.handle_status
         }
     
     async def process_message(self, message: AgentMessage) -> List[AgentMessage]:
@@ -386,7 +396,7 @@ class BaseAgent(ABC):
             self.status = AgentStatus.ERROR
             return [self.create_error_message(message.from_agent, str(e))]
     
-    def create_message(self, to_agent: str, message_type: MessageType, 
+    def create_message(self, to_agent: str, message_type: str, 
                       content: str, metadata: Dict[str, Any] = None) -> AgentMessage:
         """
         What: Creates a new message to send to another agent
@@ -408,7 +418,7 @@ class BaseAgent(ABC):
         Why: Agents need to report errors to each other
         Can I change: YES - you can modify error reporting
         """
-        return self.create_message(to_agent, MessageType.ERROR, error)
+        return self.create_message(to_agent, ERROR, error)
     
     # These are abstract methods - each agent type must implement them
     @abstractmethod
@@ -418,12 +428,12 @@ class BaseAgent(ABC):
     
     async def handle_data(self, message: AgentMessage) -> List[AgentMessage]:
         """Handle data messages - default implementation"""
-        return [self.create_message(message.from_agent, MessageType.RESPONSE, 
+        return [self.create_message(message.from_agent, RESPONSE, 
                                   f"Received data: {message.content}")]
     
     async def handle_request(self, message: AgentMessage) -> List[AgentMessage]:
         """Handle request messages - default implementation"""
-        return [self.create_message(message.from_agent, MessageType.RESPONSE, 
+        return [self.create_message(message.from_agent, RESPONSE, 
                                   f"Handled request: {message.content}")]
     
     async def handle_response(self, message: AgentMessage) -> List[AgentMessage]:
@@ -437,7 +447,7 @@ class BaseAgent(ABC):
     
     async def handle_status(self, message: AgentMessage) -> List[AgentMessage]:
         """Handle status messages - default implementation"""
-        return [self.create_message(message.from_agent, MessageType.STATUS, 
+        return [self.create_message(message.from_agent, STATUS, 
                                   f"Status: {self.status.value}")]
     
     def update_model(self, model_name: str, model_config: Dict[str, Any] = None):
@@ -466,7 +476,7 @@ class CoordinatorAgent(BaseAgent):
         Can I change: YES - you can modify the coordination strategy
         """
         try:
-            print(f"🎯 CoordinatorAgent received task: {message.content}")
+            print(f"[TARGET] CoordinatorAgent received task: {message.content}")
             
             # Check if the message is asking to see/read code
             if any(phrase in message.content.lower() for phrase in ["can you see the code", "see the code", "read the code", "show me the code", "what code", "do you see any code"]):
@@ -531,28 +541,28 @@ class CoordinatorAgent(BaseAgent):
                 agent_id = step["agent"]
                 task = step["task"]
                 
-                print(f"📤 Sending task to {agent_id}: {task[:50]}...")
+                print(f"[UPLOAD] Sending task to {agent_id}: {task[:50]}...")
                 
                 # Create task message for the agent
                 task_message = self.create_message(
                     to_agent=agent_id,
-                    message_type=MessageType.TASK,
+                    message_type=TASK,
                     content=task,
                     metadata={"priority": step.get("priority", 1)}
                 )
                 responses.append(task_message)
             
-            print(f"📤 Sending {len(responses)} task messages")
+            print(f"[UPLOAD] Sending {len(responses)} task messages")
             return responses
             
         except Exception as e:
-            print(f"❌ Coordination failed: {str(e)}")
+            print(f"[ERROR] Coordination failed: {str(e)}")
             return [self.create_error_message(message.from_agent, f"Coordination failed: {str(e)}")]
     
     async def _handle_code_reading_request(self, message: AgentMessage) -> List[AgentMessage]:
         """Handle requests to read/see code from projects or generated files"""
         try:
-            print("🔍 CoordinatorAgent: Handling code reading request")
+            print("[SEARCH] CoordinatorAgent: Handling code reading request")
             
             # Try to read code from all available sources
             import httpx
@@ -565,9 +575,9 @@ class CoordinatorAgent(BaseAgent):
                     if response.status_code == 200:
                         data = response.json()
                         projects = data.get("projects", [])
-                        print(f"📁 Found {len(projects)} projects")
+                        print(f"[DIR] Found {len(projects)} projects")
             except Exception as e:
-                print(f"⚠️ Could not fetch projects: {e}")
+                print(f"[WARN] Could not fetch projects: {e}")
             
             # Read code from all sources
             all_code = []
@@ -593,7 +603,7 @@ class CoordinatorAgent(BaseAgent):
                                     })
                                 print(f"📄 Read {len(files)} files from project {project_name}")
                     except Exception as e:
-                        print(f"⚠️ Could not read from project {project_name}: {e}")
+                        print(f"[WARN] Could not read from project {project_name}: {e}")
             
             # Also read from generated files
             try:
@@ -616,7 +626,7 @@ class CoordinatorAgent(BaseAgent):
                             })
                         print(f"📄 Read {len(files)} files from generated directory")
             except Exception as e:
-                print(f"⚠️ Could not read generated files: {e}")
+                print(f"[WARN] Could not read generated files: {e}")
             
             # Prepare response based on what we found
             if not all_code:
@@ -626,10 +636,10 @@ class CoordinatorAgent(BaseAgent):
                 main_code = [f for f in all_code if not f["is_test"]]
                 test_code = [f for f in all_code if f["is_test"]]
                 
-                response_content = f"✅ I can see {len(all_code)} code files:\n\n"
+                response_content = f"[OK] I can see {len(all_code)} code files:\n\n"
                 
                 if main_code:
-                    response_content += f"📝 **Main Code Files ({len(main_code)}):**\n"
+                    response_content += f"[NOTE] **Main Code Files ({len(main_code)}):**\n"
                     for code_file in main_code[:5]:  # Show first 5 files
                         response_content += f"- {code_file['source']}/{code_file['file']} ({code_file['lines']} lines)\n"
                     if len(main_code) > 5:
@@ -648,7 +658,7 @@ class CoordinatorAgent(BaseAgent):
             # Create response message
             response_message = self.create_message(
                 to_agent=message.from_agent,
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=response_content,
                 metadata={"code_files_found": len(all_code), "sources": list(set(f["source"] for f in all_code))}
             )
@@ -656,10 +666,10 @@ class CoordinatorAgent(BaseAgent):
             return [response_message]
             
         except Exception as e:
-            print(f"❌ Code reading failed: {str(e)}")
+            print(f"[ERROR] Code reading failed: {str(e)}")
             error_message = self.create_message(
                 to_agent=message.from_agent,
-                message_type=MessageType.ERROR,
+                message_type=ERROR,
                 content=f"Failed to read code: {str(e)}"
             )
             return [error_message]
@@ -681,7 +691,7 @@ class CoderAgent(BaseAgent):
         Can I change: YES - you can modify the code generation strategy
         """
         try:
-            print(f"🔧 CoderAgent received task: {message.content}")
+            print(f"[CONFIG] CoderAgent received task: {message.content}")
             
             # Enhanced prompt for clean code generation
             prompt = f"""
@@ -724,14 +734,14 @@ Generate ONLY the function code, nothing else.
             # Return messages
             response_message = self.create_message(
                 to_agent=message.from_agent,
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=f"Generated code saved to {filename}",
                 metadata={"code": code, "filename": filename, "filepath": str(filepath)}
             )
             
             tester_message = self.create_message(
                 to_agent="tester",
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=f"Code generated for testing",
                 metadata={"code": code, "filename": filename, "filepath": str(filepath)}
             )
@@ -739,7 +749,7 @@ Generate ONLY the function code, nothing else.
             return [response_message, tester_message]
             
         except Exception as e:
-            print(f"❌ Code generation failed: {str(e)}")
+            print(f"[ERROR] Code generation failed: {str(e)}")
             return [self.create_error_message(message.from_agent, f"Code generation failed: {str(e)}")]
     
     async def _read_existing_code(self, project_name: str = None) -> List[Dict]:
@@ -787,7 +797,7 @@ Generate ONLY the function code, nothing else.
             return all_code
             
         except Exception as e:
-            print(f"⚠️ Could not read existing code: {e}")
+            print(f"[WARN] Could not read existing code: {e}")
             return []
     
     def _simple_code_extraction(self, response: str) -> str:
@@ -992,7 +1002,7 @@ class TesterAgent(BaseAgent):
         Can I change: YES - you can modify task handling
         """
         # For now, just acknowledge the task
-        return [self.create_message(message.from_agent, MessageType.RESPONSE, 
+        return [self.create_message(message.from_agent, RESPONSE, 
                                   f"Tester agent received task: {message.content}")]
     
     async def handle_data(self, message: AgentMessage) -> List[AgentMessage]:
@@ -1007,10 +1017,10 @@ class TesterAgent(BaseAgent):
             # Extract code from metadata
             code = message.metadata.get("code", "")
             if not code:
-                print("❌ No code provided for testing")
+                print("[ERROR] No code provided for testing")
                 return [self.create_error_message(message.from_agent, "No code provided for testing")]
             
-            print(f"📝 Code to test: {len(code)} characters")
+            print(f"[NOTE] Code to test: {len(code)} characters")
             
             # Create a comprehensive testing prompt
             prompt = f"""
@@ -1042,19 +1052,19 @@ class TesterAgent(BaseAgent):
             
             # Get AI response
             response = self.llm.invoke(prompt)
-            print(f"📝 LLM test response received: {len(response)} characters")
+            print(f"[NOTE] LLM test response received: {len(response)} characters")
             
             # Extract test code from response
             test_code = self._extract_and_clean_test_code(response)
-            print(f"🔍 Extracted test code: {len(test_code)} characters")
+            print(f"[SEARCH] Extracted test code: {len(test_code)} characters")
             
             if not test_code or len(test_code.strip()) < 10:
-                print("⚠️ No valid test code extracted, using fallback")
+                print("[WARN] No valid test code extracted, using fallback")
                 test_code = self._get_fallback_tests()
             
             # FIX: Validate syntax and apply emergency fixes
             if not self._validate_python_syntax(test_code):
-                print("⚠️ Generated test code has syntax issues, applying emergency fixes")
+                print("[WARN] Generated test code has syntax issues, applying emergency fixes")
                 test_code = self._apply_test_emergency_fixes(test_code)
             
             # Save the generated tests to a file
@@ -1065,12 +1075,12 @@ class TesterAgent(BaseAgent):
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(test_code)
             
-            print(f"💾 Tests saved to: {filepath}")
+            print(f"[SAVE] Tests saved to: {filepath}")
             
             # Create response message with the tests for the original sender
             response_message = self.create_message(
                 to_agent=message.from_agent,
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=f"Generated tests saved to {filename}",
                 metadata={
                     "test_code": test_code,
@@ -1083,7 +1093,7 @@ class TesterAgent(BaseAgent):
             # ALSO send the tests directly to the runner agent
             runner_message = self.create_message(
                 to_agent="runner",
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=f"Tests generated for execution",
                 metadata={
                     "test_code": test_code,
@@ -1093,11 +1103,11 @@ class TesterAgent(BaseAgent):
                 }
             )
             
-            print(f"📤 Sending {len([response_message, runner_message])} messages")
+            print(f"[UPLOAD] Sending {len([response_message, runner_message])} messages")
             return [response_message, runner_message]
             
         except Exception as e:
-            print(f"❌ Test generation failed: {str(e)}")
+            print(f"[ERROR] Test generation failed: {str(e)}")
             return [self.create_error_message(message.from_agent, f"Test generation failed: {str(e)}")]
     
     # FIX: Add proper test code extraction method (like CoderAgent's _extract_and_clean_code)
@@ -1205,7 +1215,7 @@ class RunnerAgent(BaseAgent):
         Can I change: YES - you can modify task handling
         """
         # For now, just acknowledge the task
-        return [self.create_message(message.from_agent, MessageType.RESPONSE, 
+        return [self.create_message(message.from_agent, RESPONSE, 
                                   f"Runner agent received task: {message.content}")]
     
     async def handle_data(self, message: AgentMessage) -> List[AgentMessage]:
@@ -1222,23 +1232,23 @@ class RunnerAgent(BaseAgent):
             original_code = message.metadata.get("original_code", "")
             
             if not test_code:
-                print("❌ No test code provided")
+                print("[ERROR] No test code provided")
                 return [self.create_error_message(message.from_agent, "No test code provided")]
             
             print(f"🧪 Test code to execute: {len(test_code)} characters")
-            print(f"📝 Original code: {len(original_code)} characters")
+            print(f"[NOTE] Original code: {len(original_code)} characters")
             
             # Run the tests
             test_results = self._run_tests(original_code, test_code)
             print(f"🏃 Test execution completed: {len(test_results)} characters")
             
             # Determine if tests passed
-            tests_passed = "✅ TESTS PASSED" in test_results
+            tests_passed = "[OK] TESTS PASSED" in test_results
             
             # Create response message with test results
             response_message = self.create_message(
                 to_agent=message.from_agent,
-                message_type=MessageType.DATA,
+                message_type=DATA,
                 content=f"Test execution completed",
                 metadata={
                     "test_results": test_results,
@@ -1248,11 +1258,11 @@ class RunnerAgent(BaseAgent):
                 }
             )
             
-            print(f"📤 Sending test results: {'PASSED' if tests_passed else 'FAILED'}")
+            print(f"[UPLOAD] Sending test results: {'PASSED' if tests_passed else 'FAILED'}")
             return [response_message]
             
         except Exception as e:
-            print(f"❌ Test execution failed: {str(e)}")
+            print(f"[ERROR] Test execution failed: {str(e)}")
             return [self.create_error_message(message.from_agent, f"Test execution failed: {str(e)}")]
     
     def _run_tests(self, code: str, test_code: str) -> str:
@@ -1262,7 +1272,7 @@ class RunnerAgent(BaseAgent):
         Can I change: YES - you can modify the test execution environment
         """
         try:
-            print(f"🔧 Running tests with {len(code)} chars of code and {len(test_code)} chars of tests")
+            print(f"[CONFIG] Running tests with {len(code)} chars of code and {len(test_code)} chars of tests")
             
             # Create a temporary file that combines both code and tests
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
@@ -1273,7 +1283,7 @@ class RunnerAgent(BaseAgent):
                 f.write(test_code)
                 test_file = f.name
             
-            print(f"📁 Created combined file: {test_file}")
+            print(f"[DIR] Created combined file: {test_file}")
             
             # Run the tests using subprocess
             result = subprocess.run(
@@ -1284,22 +1294,22 @@ class RunnerAgent(BaseAgent):
             )
             
             print(f"🏃 Test execution completed with return code: {result.returncode}")
-            print(f"📤 stdout: {len(result.stdout)} chars")
-            print(f"📤 stderr: {len(result.stderr)} chars")
+            print(f"[UPLOAD] stdout: {len(result.stdout)} chars")
+            print(f"[UPLOAD] stderr: {len(result.stderr)} chars")
             
             # Clean up temporary files
             os.unlink(test_file)
             
             # Return the test results
             if result.returncode == 0:
-                return f"✅ TESTS PASSED\n{result.stdout}"
+                return f"[OK] TESTS PASSED\n{result.stdout}"
             else:
-                return f"❌ TESTS FAILED\n{result.stdout}\n{result.stderr}"
+                return f"[ERROR] TESTS FAILED\n{result.stdout}\n{result.stderr}"
                 
         except subprocess.TimeoutExpired:
-            return "❌ TESTS TIMEOUT - Tests took too long to run"
+            return "[ERROR] TESTS TIMEOUT - Tests took too long to run"
         except Exception as e:
-            return f"❌ TEST EXECUTION ERROR: {str(e)}"
+            return f"[ERROR] TEST EXECUTION ERROR: {str(e)}"
 
 # =============================================================================
 # AGENT FACTORY - CREATES AGENTS DYNAMICALLY
@@ -1371,7 +1381,7 @@ class MessageBus:
         Why: This is how agents communicate with each other
         Can I change: YES - you can modify message routing
         """
-        print(f"🔀 Sending message: {message.from_agent} -> {message.to_agent} ({message.message_type.value})")
+        print(f"🔀 Sending message: {message.from_agent} -> {message.to_agent} ({message.message_type})")
         print(f"   Content: {message.content[:100]}...")
         
         # NEW: Log message to database (NON-BLOCKING)
@@ -1379,7 +1389,7 @@ class MessageBus:
             asyncio.create_task(self.logger.log_message(message))
         
         # Log message for debugging
-        print(f"📤 Message sent: {message.from_agent} -> {message.to_agent}")
+        print(f"[UPLOAD] Message sent: {message.from_agent} -> {message.to_agent}")
         
         # Send real-time update via WebSocket
         try:
@@ -1390,11 +1400,11 @@ class MessageBus:
                 content=message.content
             )
         except Exception as e:
-            print(f"⚠️ WebSocket update failed: {e}")
+            print(f"[WARN] WebSocket update failed: {e}")
         
         target_agent = self.agents.get(message.to_agent)
         if not target_agent:
-            print(f"⚠️ Warning: Agent {message.to_agent} not found")
+            print(f"[WARN] Warning: Agent {message.to_agent} not found")
             return
         
         # Send agent working status
@@ -1406,12 +1416,12 @@ class MessageBus:
                 content=""
             )
         except Exception as e:
-            print(f"⚠️ WebSocket update failed: {e}")
+            print(f"[WARN] WebSocket update failed: {e}")
         
         # Process the message and get responses
         response_messages = await target_agent.process_message(message)
         
-        print(f"📤 Agent {message.to_agent} generated {len(response_messages)} responses")
+        print(f"[UPLOAD] Agent {message.to_agent} generated {len(response_messages)} responses")
         
         # Send agent completed status
         try:
@@ -1422,7 +1432,7 @@ class MessageBus:
                 content=""
             )
         except Exception as e:
-            print(f"⚠️ WebSocket update failed: {e}")
+            print(f"[WARN] WebSocket update failed: {e}")
         
         # Send each response message
         for response in response_messages:
@@ -1435,7 +1445,7 @@ class MessageBus:
         Can I change: YES - you can modify the workflow processing
         """
         try:
-            print(f"🚀 Starting workflow with task: {initial_task}")
+            print(f"[START] Starting workflow with task: {initial_task}")
             print(f"🤖 Creating {len(workflow_agents)} agents")
             
             # Create and register all agents
@@ -1448,7 +1458,7 @@ class MessageBus:
                     model_config=agent_config.get("model_config", {})
                 )
                 self.register_agent(agent)
-                print(f"✅ Created agent: {agent_config['id']} ({agent_config['type']})")
+                print(f"[OK] Created agent: {agent_config['id']} ({agent_config['type']})")
             
             # Start the workflow with the coordinator
             coordinator = self.agents.get("coordinator")
@@ -1457,31 +1467,45 @@ class MessageBus:
             
             # Generate workflow ID for tracking
             workflow_id = f"workflow_{datetime.now().timestamp()}"
-            print(f"🚀 Starting workflow: {workflow_id}")
+            print(f"[START] Starting workflow: {workflow_id}")
             
             # Create initial task message from system to coordinator
             initial_message = AgentMessage(
                 id=f"workflow_start_{datetime.now().timestamp()}",
                 from_agent="system",
                 to_agent="coordinator",
-                message_type=MessageType.TASK,
+                message_type=TASK,
                 content=initial_task
             )
             
-            print(f"📤 Sending initial message to coordinator")
+            print(f"[UPLOAD] Sending initial message to coordinator")
             
             # Process the workflow and wait for completion
             await self.send_message(initial_message)
             
             # Wait a bit for the workflow to complete (in a real system, you'd have better completion detection)
             print(f"⏳ Waiting for workflow completion...")
-            # Reduce wait time and add progress updates
-            for i in range(10):  # Wait 2 seconds total (10 * 0.2)
-                await asyncio.sleep(0.2)  # Check every 200ms
-                print(f"⏳ Workflow progress: {i+1}/10")
+            # Wait for workflow to complete with better detection
+            max_wait_time = 30  # 30 seconds max
+            check_interval = 0.5  # Check every 500ms
+            waited_time = 0
+            
+            while waited_time < max_wait_time:
+                await asyncio.sleep(check_interval)
+                waited_time += check_interval
                 
-                # Log progress update
-                print(f"⏳ Workflow progress: {i+1}/10")
+                # Check if all agents are idle or completed
+                active_agents = 0
+                for agent_id, agent in self.agents.items():
+                    if agent.status in [AgentStatus.WORKING, AgentStatus.WAITING]:
+                        active_agents += 1
+                
+                print(f"⏳ Workflow progress: {waited_time:.1f}s, {active_agents} active agents")
+                
+                # If no agents are active, workflow is likely complete
+                if active_agents == 0:
+                    print(f"[OK] All agents completed, workflow finished")
+                    break
             
             # Collect results from all agents
             results = {}
@@ -1491,21 +1515,26 @@ class MessageBus:
                     "memory": len(agent.memory.short_term),
                     "messages": [msg.content for msg in agent.memory.short_term[-5:]]  # Last 5 messages
                 }
-                print(f"📊 Agent {agent_id}: {agent.status.value}, {len(agent.memory.short_term)} messages")
+                print(f"[STATS] Agent {agent_id}: {agent.status.value}, {len(agent.memory.short_term)} messages")
             
-            print(f"✅ Workflow completed successfully")
+            print(f"[OK] Workflow completed successfully")
             
             # Log workflow completion
-            print(f"✅ Workflow {workflow_id} completed successfully")
+            print(f"[OK] Workflow {workflow_id} completed successfully")
+            
+            # Check if we have any results
+            has_results = any(len(agent.memory.short_term) > 0 for agent in self.agents.values())
             
             return {
                 "success": True,
                 "results": results,
-                "message": "Workflow completed successfully"
+                "message": "Workflow completed successfully" if has_results else "Workflow completed with no results"
             }
                 
         except Exception as e:
-            print(f"❌ Workflow failed: {str(e)}")
+            print(f"[ERROR] Workflow failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e),
@@ -1572,6 +1601,19 @@ def _extract_code(response: str) -> str:
 # API ENDPOINTS - WHAT THE FRONTEND CALLS
 # =============================================================================
 
+@app.post("/chat-test")
+async def chat_test(request: PromptRequest):
+    """Test endpoint to verify the response format"""
+    return {
+        "type": "coding",
+        "message": "Test response",
+        "code": "def test():\n    return 'Hello World'",
+        "tests": "def test_test():\n    assert test() == 'Hello World'",
+        "test_results": "All tests passed!",
+        "tests_passed": True,
+        "success": True
+    }
+
 @app.post("/chat")
 async def chat(request: PromptRequest):
     """
@@ -1580,7 +1622,7 @@ async def chat(request: PromptRequest):
     Can I change: YES - you can modify the chat logic
     """
     try:
-        print(f"🚀 Starting chat workflow with prompt: {request.prompt}")
+        print(f"[START] Starting chat workflow with prompt: {request.prompt}")
         
         # Validate input
         if not request.prompt or not request.prompt.strip():
@@ -1611,16 +1653,27 @@ async def chat(request: PromptRequest):
         print(f"🤖 Created {len(workflow_agents)} agents")
         
         # Process the workflow
-        result = await message_bus.process_workflow(request.prompt, workflow_agents)
-        
-        print(f"✅ Workflow completed with result: {result}")
+        try:
+            result = await message_bus.process_workflow(request.prompt, workflow_agents)
+            print(f"[OK] Workflow completed with result: {result}")
+        except Exception as workflow_error:
+            print(f"[ERROR] Workflow exception: {workflow_error}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "type": "error",
+                "message": f"Workflow failed with exception: {str(workflow_error)}",
+                "success": False,
+                "workflow_result": {"error": str(workflow_error)}
+            }
         
         # Check if workflow failed
         if not result.get("success", False):
             return {
                 "type": "error",
                 "message": result.get("message", "Workflow failed"),
-                "success": False
+                "success": False,
+                "workflow_result": result
             }
         
         # Extract results from the workflow
@@ -1631,13 +1684,13 @@ async def chat(request: PromptRequest):
         
         # Look for generated files in the results
         for agent_id, agent in message_bus.agents.items():
-            print(f"🔍 Checking agent {agent_id}: {len(agent.memory.short_term)} messages")
+            print(f"[SEARCH] Checking agent {agent_id}: {len(agent.memory.short_term)} messages")
             if agent_id == "coder":
                 # Look for code in the agent's memory
                 for msg in agent.memory.short_term:
                     if msg.metadata.get("code"):
                         code = msg.metadata["code"]
-                        print(f"📝 Found code from coder agent: {len(code)} characters")
+                        print(f"[NOTE] Found code from coder agent: {len(code)} characters")
                         break
             elif agent_id == "tester":
                 # Look for tests in the agent's memory
@@ -1663,9 +1716,9 @@ async def chat(request: PromptRequest):
                     latest_code_file = max(code_files, key=lambda x: x.stat().st_mtime)
                     with open(latest_code_file, 'r', encoding='utf-8') as f:
                         code = f.read()
-                    print(f"📝 Found code from file: {latest_code_file.name}")
+                    print(f"[NOTE] Found code from file: {latest_code_file.name}")
             except Exception as e:
-                print(f"⚠️ Could not read code from file: {e}")
+                print(f"[WARN] Could not read code from file: {e}")
         
         # If tests weren't found in memory, try to read from the latest generated file
         if not tests:
@@ -1677,7 +1730,7 @@ async def chat(request: PromptRequest):
                         tests = f.read()
                     print(f"🧪 Found tests from file: {latest_test_file.name}")
             except Exception as e:
-                print(f"⚠️ Could not read tests from file: {e}")
+                print(f"[WARN] Could not read tests from file: {e}")
         
         # If test results weren't found in memory, try to execute the latest tests
         if not test_results and code and tests:
@@ -1686,15 +1739,19 @@ async def chat(request: PromptRequest):
                 # Create a temporary runner to execute the tests
                 temp_runner = RunnerAgent("temp_runner", "runner", "Test Runner")
                 test_results = temp_runner._run_tests(code, tests)
-                tests_passed = "✅ TESTS PASSED" in test_results
+                tests_passed = "[OK] TESTS PASSED" in test_results
                 print(f"🏃 Test execution completed: {len(test_results)} characters")
             except Exception as e:
-                print(f"⚠️ Could not execute tests: {e}")
-                test_results = f"❌ Test execution failed: {str(e)}"
+                print(f"[WARN] Could not execute tests: {e}")
+                test_results = f"[ERROR] Test execution failed: {str(e)}"
                 tests_passed = False
         
         # Determine response type based on what was generated
         response_type = "coding" if (code or tests) else "error"
+        print(f"[SEARCH] Response type: {response_type}")
+        print(f"[SEARCH] Code: {code is not None}")
+        print(f"[SEARCH] Tests: {tests is not None}")
+        print(f"[SEARCH] Result success: {result.get('success', False)}")
         
         response_data = {
             "type": response_type,
@@ -1706,11 +1763,13 @@ async def chat(request: PromptRequest):
             "success": result.get("success", False)
         }
         
-        print(f"📤 Returning response: {response_data}")
+        print(f"[UPLOAD] Returning response: {response_data}")
         return response_data
         
     except Exception as e:
-        print(f"❌ Error in chat endpoint: {str(e)}")
+        print(f"[ERROR] Error in chat endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "type": "error",
             "message": f"Error processing request: {str(e)}",
@@ -1895,7 +1954,7 @@ async def run_manual_flow(data: ManualFlowRequest):
                 messages.append({
                     "from": msg.from_agent,
                     "to": msg.to_agent,
-                    "type": msg.message_type.value,
+                    "type": msg.message_type,
                     "content": msg.content,
                     "timestamp": msg.timestamp.isoformat()
                 })
@@ -2265,28 +2324,52 @@ async def options_online_models():
     response.headers["Access-Control-Allow-Headers"] = "*"
     return response
 
+from fastapi import Request
+
 @app.get("/online-models")
-async def get_online_models_from_main():
-    """Get online models through main service"""
+async def get_online_models_from_main(request: Request):
+    """Get online models filtered by per-request API keys or env variables."""
     from fastapi import Response
-    
+    from online_agent_service import ONLINE_MODEL_CONFIGS as OA_MODELS
+    from online_agent_service import OPENAI_API_KEY as OA_OPENAI
+    from online_agent_service import MISTRAL_API_KEY as OA_MISTRAL
+    from online_agent_service import GEMINI_API_KEY as OA_GEMINI
+
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    key_openai = headers.get("x-openai-key") or OA_OPENAI
+    key_mistral = headers.get("x-mistral-key") or OA_MISTRAL
+    key_gemini = headers.get("x-google-key") or OA_GEMINI
+
+    def provider_enabled(provider: str) -> bool:
+        if provider == "openai":
+            return bool(key_openai)
+        if provider == "mistral":
+            return bool(key_mistral)
+        if provider == "gemini":
+            return bool(key_gemini)
+        return False
+
+    filtered = { mid: cfg for mid, cfg in OA_MODELS.items() if provider_enabled(cfg.get("provider", "")) }
+
     # Add name property to each model for frontend compatibility
     models_with_names = {}
-    for model_id, model_config in ONLINE_MODEL_CONFIGS.items():
+    for model_id, model_config in filtered.items():
         models_with_names[model_id] = {
             **model_config,
             "name": model_id.replace("-", " ").replace("_", " ").title()
         }
-    
+
+    providers = {
+        "openai": ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"] if provider_enabled("openai") else [],
+        "mistral": ["mistral-large", "mistral-medium", "mistral-small"] if provider_enabled("mistral") else [],
+        "gemini": ["gemini-pro", "gemini-1.5-flash"] if provider_enabled("gemini") else [],
+    }
+
     response = Response(
         content=json.dumps({
             "available_models": models_with_names,
-            "default_model": "gpt-3.5-turbo",
-            "providers": {
-                "openai": ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"],
-                "mistral": ["mistral-large", "mistral-medium", "mistral-small"],
-                "gemini": ["gemini-pro", "gemini-1.5-flash"]
-            }
+            "default_model": next(iter(models_with_names.keys()), "mistral-small"),
+            "providers": providers
         }),
         media_type="application/json"
     )
@@ -2552,7 +2635,7 @@ async def add_message(conversation_id: str, request: dict):
         raise HTTPException(status_code=500, detail="Conversation management not available")
     
     try:
-        message_type = MessageType(request.get("type", "user"))
+        message_type = ConvMessageType(request.get("type", "user"))
         content = request.get("content", "")
         agent_id = request.get("agent_id")
         agent_role = request.get("agent_role")
@@ -2755,15 +2838,92 @@ async def get_project_files(project_name: str):
         raise HTTPException(status_code=500, detail="File management not available")
     
     try:
+        print(f"[SEARCH] Getting files for project: {project_name}")
         files = file_manager.get_project_files(project_name)
+        print(f"[SEARCH] Found {len(files)} files for project {project_name}")
+        
+        # Log file details for debugging
+        for file in files:
+            print(f"   - {file['name']} ({file['type']}) - {file['size']} bytes")
+        
+        # Create folder structure for frontend
+        folder_structure = _create_folder_structure(files)
+        print(f"[SEARCH] Created folder structure with {len(folder_structure)} items")
+        
         return {
             "success": True,
             "project_name": project_name,
             "files": files,
-            "count": len(files)
+            "count": len(files),
+            "folder_structure": folder_structure
         }
     except Exception as e:
+        print(f"[ERROR] Error getting project files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get project files: {str(e)}")
+
+def _create_folder_structure(files):
+    """Create DYNAMIC folder structure from files for frontend display"""
+    try:
+        # Create a dynamic folder structure based on actual directories
+        folder_map = {}
+        
+        for file in files:
+            # Get the directory path
+            directory = file.get('directory', 'root')
+            file_type = file.get('type', 'other')
+            
+            # Create folder key
+            if directory == 'root':
+                folder_key = f"root_{file_type}"
+                folder_name = f"[DIR] {file_type.title()}"
+            else:
+                folder_key = directory
+                folder_name = f"[DIR] {directory}"
+            
+            # Create folder if it doesn't exist
+            if folder_key not in folder_map:
+                folder_map[folder_key] = {
+                    "name": folder_name,
+                    "path": directory,
+                    "type": "folder",
+                    "children": []
+                }
+            
+            # Convert file to FileItem format expected by frontend
+            file_item = {
+                "name": file['name'],
+                "path": file['path'],
+                "full_path": file.get('full_path', file['path']),
+                "type": "file",
+                "size": file['size'],
+                "modified": file['modified'],
+                "content": file.get('content', ''),
+                "is_test": file.get('is_test', False),
+                "is_code": file.get('is_code', False),
+                "is_config": file.get('is_config', False),
+                "is_documentation": file.get('is_documentation', False),
+                "extension": file.get('extension', ''),
+                "directory": directory
+            }
+            
+            folder_map[folder_key]["children"].append(file_item)
+        
+        # Convert to list and sort
+        result = list(folder_map.values())
+        result.sort(key=lambda x: x['name'])
+        
+        # Sort files within each folder
+        for folder in result:
+            folder['children'].sort(key=lambda x: (
+                x['is_code'],  # Code files first
+                x['name'].lower()  # Then alphabetical
+            ))
+        
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Error creating folder structure: {e}")
+        return []
 
 @app.post("/projects/create")
 async def create_project(request: dict):
@@ -2833,27 +2993,27 @@ try:
     # from online_agent_github_integration import online_agent_github
     
     GIT_AVAILABLE = True
-    print("✅ Git integration modules loaded successfully")
+    print("[OK] Git integration modules loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Git integration not available: {e}")
+    print(f"[WARN] Git integration not available: {e}")
     GIT_AVAILABLE = False
 
 # Import conversation management
 try:
-    from conversation_manager import conversation_manager, ConversationType, MessageType, PromptTemplate
+    from conversation_manager import conversation_manager, ConversationType, MessageType as ConvMessageType, PromptTemplate
     CONVERSATION_MANAGER_AVAILABLE = True
-    print("✅ Conversation management system loaded successfully")
+    print("[OK] Conversation management system loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Conversation management not available: {e}")
+    print(f"[WARN] Conversation management not available: {e}")
     CONVERSATION_MANAGER_AVAILABLE = False
 
 # Import file management
 try:
     from file_manager import file_manager
     FILE_MANAGER_AVAILABLE = True
-    print("✅ Advanced file management system loaded successfully")
+    print("[OK] Advanced file management system loaded successfully")
 except ImportError as e:
-    print(f"⚠️ File management not available: {e}")
+    print(f"[WARN] File management not available: {e}")
     FILE_MANAGER_AVAILABLE = False
 
 # Git configuration storage (in production, use a proper database)
@@ -2864,6 +3024,64 @@ git_config_storage = {
     "email": None,
     "user_info": None
 }
+
+# Load GitHub configuration from environment on startup
+def load_github_config_from_env():
+    """Load GitHub configuration from environment variables on startup"""
+    github_token = os.environ.get("GITHUB_TOKEN")
+    github_username = os.environ.get("GITHUB_USERNAME")
+    
+    if github_token and github_username and github_token != "your_github_token_here":
+        logging.info("=" * 60)
+        logging.info("[GITHUB] Loading GitHub configuration from environment...")
+        logging.info(f"   Username: {github_username}")
+        logging.info("=" * 60)
+        
+        try:
+            # Initialize GitHub service to validate credentials
+            from github_service import GitHubService
+            github_service = GitHubService(token=github_token, username=github_username)
+            
+            # Validate token
+            validation_result = github_service.validate_token()
+            if validation_result.get("success"):
+                # Get repositories
+                repos_result = github_service.list_repositories()
+                repositories = repos_result.get("repositories", []) if repos_result.get("success") else []
+                
+                # Store configuration
+                git_config_storage.update({
+                    "configured": True,
+                    "token": github_token,
+                    "username": github_username,
+                    "user_info": validation_result.get("user"),
+                    "repositories": repositories
+                })
+                
+                logging.info("[OK] GitHub configured successfully at startup!")
+                logging.info(f"   User: {validation_result.get('user', {}).get('login', 'Unknown')}")
+                logging.info(f"   Repositories available: {len(repositories)}")
+                logging.info("=" * 60)
+                return True
+            else:
+                logging.warning(f"[WARN] GitHub token validation failed: {validation_result.get('error')}")
+                logging.warning("[TIP] Check your GITHUB_TOKEN in keys.txt")
+                return False
+        except Exception as e:
+            logging.error(f"[ERROR] Failed to configure GitHub at startup: {e}")
+            logging.error("[TIP] Make sure git-integration module is available")
+            return False
+    else:
+        if not github_token or github_token == "your_github_token_here":
+            logging.info("[INFO] GitHub not configured: No GITHUB_TOKEN in environment")
+            logging.info("[TIP] Add your GitHub token to backend-ai/keys.txt to enable auto-upload")
+        elif not github_username:
+            logging.info("[INFO] GitHub not configured: No GITHUB_USERNAME in environment")
+        return False
+
+# Attempt to load GitHub config at startup
+if GIT_AVAILABLE:
+    load_github_config_from_env()
 
 @app.get("/git/status")
 async def get_git_status():
@@ -3023,6 +3241,150 @@ async def pull_from_repository(request: dict):
         raise HTTPException(status_code=408, detail="Repository clone timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pull failed: {str(e)}")
+
+@app.post("/git/auto-upload")
+async def auto_upload_to_github(request: dict):
+    """Auto-upload generated code to GitHub by creating a NEW repository"""
+    if not GIT_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Git integration not available")
+    
+    if not git_config_storage["configured"]:
+        raise HTTPException(status_code=400, detail="Git not configured. Please configure first.")
+    
+    try:
+        project_name = request.get("project_name", "ai-generated-project")
+        task_description = request.get("task_description", "AI Generated Code")
+        create_new_repo = request.get("create_new_repo", True)
+        
+        print(f"[START] Auto-uploading project: {project_name}")
+        
+        # Initialize GitHub service with stored config
+        try:
+            github_service = GitHubService(
+                token=git_config_storage["token"],
+                username=git_config_storage["username"]
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize GitHub service: {str(e)}")
+        
+        # Get project directory
+        project_dir = GENERATED_DIR / "projects" / project_name
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Project directory not found: {project_name}")
+        
+        # Create new repository
+        repo_name = project_name.replace(" ", "-").replace("_", "-").lower()
+        repo_description = f"AI Generated: {task_description[:100]}"
+        
+        print(f"[DIR] Creating new repository: {repo_name}")
+        
+        # Create repository
+        from github_service import GitHubRepository
+        repo = GitHubRepository(
+            name=repo_name,
+            description=repo_description,
+            private=False,
+            auto_init=False
+        )
+        
+        create_result = github_service.create_repository(repo)
+        if not create_result["success"]:
+            # Repository might already exist, try with timestamp
+            import time
+            timestamp = int(time.time())
+            repo_name = f"{repo_name}-{timestamp}"
+            repo.name = repo_name
+            
+            create_result = github_service.create_repository(repo)
+            if not create_result["success"]:
+                raise HTTPException(status_code=500, detail=f"Failed to create repository: {create_result.get('error')}")
+        
+        print(f"[OK] Repository created: {create_result['repository']['html_url']}")
+        
+        # Get all files from project directory
+        generated_files = []
+        for file_path in project_dir.rglob("*"):
+            if file_path.is_file() and not file_path.name.startswith('.'):
+                try:
+                    content = file_path.read_text(encoding='utf-8')
+                    rel_path = file_path.relative_to(project_dir)
+                    
+                    # Determine folder structure
+                    if "test" in str(rel_path).lower() or "test" in file_path.name.lower():
+                        github_path = f"tests/{rel_path.name}"
+                    else:
+                        github_path = f"src/{rel_path.name}"
+                    
+                    generated_files.append({
+                        "path": github_path,
+                        "content": content,
+                        "original_path": str(rel_path)
+                    })
+                except Exception as e:
+                    print(f"[WARN] Could not read file {file_path}: {e}")
+        
+        # Add README
+        readme_content = f"""# {project_name}
+
+{task_description}
+
+## Generated Files
+
+This repository contains AI-generated code with the following structure:
+- `src/` - Source code files
+- `tests/` - Test files (if any)
+
+## Generation Details
+- Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+- Project: {project_name}
+- Description: {task_description}
+
+## Files
+"""
+        
+        for file in generated_files:
+            readme_content += f"- {file['path']}\n"
+        
+        generated_files.append({
+            "path": "README.md",
+            "content": readme_content,
+            "original_path": "README.md"
+        })
+        
+        # Convert to GitHub file format
+        from github_service import GitHubFile
+        github_files = [
+            GitHubFile(
+                path=file["path"],
+                content=file["content"],
+                message=f"Add {file['path']}"
+            )
+            for file in generated_files
+        ]
+        
+        # Push files to repository
+        print(f"[START] Pushing {len(github_files)} files to GitHub")
+        push_result = github_service.push_files(
+            repo_name=repo_name,
+            files=github_files,
+            commit_message=f"Initial commit: {task_description}"
+        )
+        
+        if push_result["success"]:
+            return {
+                "success": True,
+                "repository_url": push_result["repository_url"],
+                "commit_sha": push_result["commit_sha"],
+                "files_uploaded": push_result["files_pushed"],
+                "message": f"Successfully uploaded {project_name} to GitHub"
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to push files: {push_result.get('error')}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Auto-upload failed: {str(e)}")
 
 @app.post("/git/push")
 async def push_to_repository(request: dict):
@@ -3209,20 +3571,20 @@ async def list_git_repositories():
 async def list_projects():
     """List all projects - both git-pulled and file-manager projects"""
     try:
-        print("🔍 Projects API called - starting project listing...")
+        print("[SEARCH] Projects API called - starting project listing...")
         all_projects = []
         
         # Get projects from git pull (stored in projects directory) - PRIMARY SOURCE
         projects_dir = GENERATED_DIR / "projects"
-        print(f"🔍 Checking projects directory: {projects_dir}")
-        print(f"🔍 Projects directory exists: {projects_dir.exists()}")
+        print(f"[SEARCH] Checking projects directory: {projects_dir}")
+        print(f"[SEARCH] Projects directory exists: {projects_dir.exists()}")
         
         if projects_dir.exists():
             project_dirs = [d for d in projects_dir.iterdir() if d.is_dir()]
-            print(f"🔍 Found {len(project_dirs)} project directories")
+            print(f"[SEARCH] Found {len(project_dirs)} project directories")
             
             for project_path in project_dirs:
-                print(f"🔍 Processing project: {project_path.name}")
+                print(f"[SEARCH] Processing project: {project_path.name}")
                 
                 try:
                     # Count files in project - for pulled repos, count all actual files
@@ -3264,16 +3626,16 @@ async def list_projects():
                     }
                     
                     all_projects.append(project_data)
-                    print(f"✅ Added project: {project_path.name} ({file_count} Python files, {total_files} total files)")
+                    print(f"[OK] Added project: {project_path.name} ({file_count} Python files, {total_files} total files)")
                     
                 except Exception as e:
-                    print(f"❌ Error processing project {project_path.name}: {e}")
+                    print(f"[ERROR] Error processing project {project_path.name}: {e}")
         
         # Get projects from file manager (AI-generated projects) - SECONDARY SOURCE
         if FILE_MANAGER_AVAILABLE:
             try:
                 file_manager_projects = file_manager.list_projects()
-                print(f"🔍 Found {len(file_manager_projects)} file manager projects")
+                print(f"[SEARCH] Found {len(file_manager_projects)} file manager projects")
                 
                 for project in file_manager_projects:
                     project_name = project.get("name", "Unknown")
@@ -3312,12 +3674,12 @@ async def list_projects():
                         pass
                     
                     all_projects.append(converted_project)
-                    print(f"✅ Added file manager project: {project_name}")
+                    print(f"[OK] Added file manager project: {project_name}")
                     
             except Exception as e:
-                print(f"⚠️ Could not get file manager projects: {e}")
+                print(f"[WARN] Could not get file manager projects: {e}")
         
-        print(f"📊 Found {len(all_projects)} projects total")
+        print(f"[STATS] Found {len(all_projects)} projects total")
         for project in all_projects:
             print(f"  - {project.get('name')} ({project.get('file_count', 0)} files) - {project.get('source')}")
         
@@ -3328,83 +3690,11 @@ async def list_projects():
         }
         
     except Exception as e:
-        print(f"❌ Error in list_projects: {e}")
+        print(f"[ERROR] Error in list_projects: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list projects: {str(e)}")
 
-@app.get("/projects/{project_name}/files")
-async def get_project_files(project_name: str):
-    """Get files in a specific project - SIMPLIFIED VERSION"""
-    try:
-        print(f"🔍 Getting files for project: {project_name}")
-        
-        # Get project directory
-        project_dir = GENERATED_DIR / "projects" / project_name
-        print(f"🔍 Project directory: {project_dir}")
-        print(f"🔍 Directory exists: {project_dir.exists()}")
-        
-        if not project_dir.exists():
-            print(f"❌ Project directory does not exist: {project_dir}")
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Simple file collection - just get all files
-        files = []
-        try:
-            # Get all files recursively
-            for file_path in project_dir.rglob("*"):
-                if file_path.is_file():
-                    print(f"🔍 Found file: {file_path.name}")
-                    
-                    # Get relative path
-                    rel_path = file_path.relative_to(project_dir)
-                    
-                    # Try to read content
-                    content = ""
-                    try:
-                        content = file_path.read_text(encoding='utf-8')
-                        print(f"✅ Successfully read: {file_path.name}")
-                    except Exception as read_error:
-                        print(f"⚠️ Could not read content of {file_path.name}: {read_error}")
-                        content = f"Error reading file: {str(read_error)}"
-                    
-                    # Create file object
-                    file_obj = {
-                        "name": file_path.name,
-                        "path": str(rel_path),
-                        "type": "file",
-                        "size": file_path.stat().st_size,
-                        "modified": file_path.stat().st_mtime,
-                        "content": content,
-                        "is_test": "test" in file_path.name.lower(),
-                        "extension": file_path.suffix
-                    }
-                    
-                    files.append(file_obj)
-                    print(f"✅ Added file: {file_path.name} ({file_obj['size']} bytes)")
-        
-        except Exception as scan_error:
-            print(f"❌ Error scanning directory: {scan_error}")
-            raise HTTPException(status_code=500, detail=f"Error scanning project directory: {str(scan_error)}")
-        
-        print(f"🔍 Total files found: {len(files)}")
-        
-        # Return simple response
-        response = {
-            "success": True,
-            "project_name": project_name,
-            "files": files,
-            "count": len(files)
-        }
-        
-        print(f"🔍 Returning response with {len(files)} files")
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ CRITICAL ERROR: {str(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get project files: {str(e)}")
+# REMOVED DUPLICATE ENDPOINT - This was overriding the correct file_manager.get_project_files() method
+# The correct endpoint is defined earlier at line 2800
 
 @app.get("/projects/{project_name}/test")
 async def test_project_files(project_name: str):
@@ -3552,7 +3842,7 @@ async def get_project_code(project_name: str, file_pattern: str = "*.py"):
         
         # Also check for other file types if no Python files found
         if not code_files and file_pattern == "*.py":
-            print(f"⚠️ No Python files found in {project_name}, checking for other file types...")
+            print(f"[WARN] No Python files found in {project_name}, checking for other file types...")
             for ext in [".js", ".ts", ".html", ".css", ".json", ".md", ".txt"]:
                 for file_path in project_dir.rglob(f"*{ext}"):
                     if file_path.is_file():
@@ -3698,9 +3988,9 @@ async def agents_read_code(request: dict):
 # STARTUP MESSAGE - SHOWS WHEN SERVER STARTS
 # =============================================================================
 if __name__ == "__main__":
-    print("🚀 Starting Multi-Agent AI System...")
-    print(f"🔧 GPU Configuration: {DEFAULT_GPU_CONFIG}")
-    print("📁 Generated files will be saved to:", GENERATED_DIR)
+    print("[START] Starting Multi-Agent AI System...")
+    print(f"[CONFIG] GPU Configuration: {DEFAULT_GPU_CONFIG}")
+    print("[DIR] Generated files will be saved to:", GENERATED_DIR)
     print("🌐 Main Server will be available at: http://localhost:8000")
     print("🌐 Online Agent Service will be available at: http://localhost:8000/online")
     print("📚 API Documentation: http://localhost:8000/docs")

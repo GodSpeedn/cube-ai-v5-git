@@ -17,6 +17,7 @@ import CodeAndFilesPage from './pages/CodeAndFilesPage';
 import AICommunicationPage from './pages/AICommunicationPage';
 import ManualAgentsPage from './pages/ManualAgentsPage';
 import GitIntegrationPage from './pages/GitIntegrationPage';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useTheme } from './hooks/useTheme';
 import './styles/shared.css';
 import './styles/manual-agents.css';
@@ -55,7 +56,9 @@ export default function App() {
           visibility: currentPage === 'code' ? 'visible' : 'hidden',
           zIndex: currentPage === 'code' ? 1 : 0
         }}>
-          <CodeAndFilesPage />
+          <ErrorBoundary fallback={<div className="p-4 text-red-500">Code & Files page crashed. Please refresh.</div>}>
+            <CodeAndFilesPage />
+          </ErrorBoundary>
         </div>
         <div style={{ 
           position: 'absolute',
@@ -66,7 +69,9 @@ export default function App() {
           visibility: currentPage === 'ai' ? 'visible' : 'hidden',
           zIndex: currentPage === 'ai' ? 1 : 0
         }}>
-          <AICommunicationPage />
+          <ErrorBoundary fallback={<div className="p-4 text-red-500">AI Communication page crashed. Please refresh.</div>}>
+            <AICommunicationPage />
+          </ErrorBoundary>
         </div>
         <div style={{ 
           position: 'absolute',
@@ -77,7 +82,9 @@ export default function App() {
           visibility: currentPage === 'manual' ? 'visible' : 'hidden',
           zIndex: currentPage === 'manual' ? 1 : 0
         }}>
-          <ManualAgentsPage />
+          <ErrorBoundary fallback={<div className="p-4 text-red-500">Manual Agents page crashed. Please refresh.</div>}>
+            <ManualAgentsPage />
+          </ErrorBoundary>
         </div>
         <div style={{ 
           position: 'absolute',
@@ -88,7 +95,9 @@ export default function App() {
           visibility: currentPage === 'git' ? 'visible' : 'hidden',
           zIndex: currentPage === 'git' ? 1 : 0
         }}>
-          <GitIntegrationPage />
+          <ErrorBoundary fallback={<div className="p-4 text-red-500">Git Integration page crashed. Please refresh.</div>}>
+            <GitIntegrationPage />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -107,72 +116,74 @@ export default function App() {
   };
 
   return (
-    <div className={`h-screen w-screen ${isDark ? 'bg-gray-900' : 'bg-gray-100'} text-${isDark ? 'white' : 'gray-900'} flex flex-col overflow-hidden transition-colors duration-200`}>
-      {/* Top Bar */}
-      <div className={`p-4 flex justify-between items-center border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-        <h1 className="text-xl font-bold">Offline AI Coding Assistant</h1>
-        <div className="flex space-x-4 items-center">
-          <nav className="flex space-x-2">
-            <button
+    <ErrorBoundary>
+      <div className={`h-screen w-screen ${isDark ? 'bg-gray-900' : 'bg-gray-100'} text-${isDark ? 'white' : 'gray-900'} flex flex-col overflow-hidden transition-colors duration-200`}>
+        {/* Top Bar */}
+        <div className={`p-4 flex justify-between items-center border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+          <h1 className="text-xl font-bold">Offline AI Coding Assistant</h1>
+          <div className="flex space-x-4 items-center">
+            <nav className="flex space-x-2">
+              <button
+                type="button"
+                className={`px-4 py-2 rounded transition-colors duration-200 ${
+                  currentPage === 'code' 
+                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
+                    : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
+                }`}
+                onClick={handlePageChange('code')}
+              >
+                Code & Files
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 rounded transition-colors duration-200 ${
+                  currentPage === 'ai' 
+                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
+                    : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
+                }`}
+                onClick={handlePageChange('ai')}
+              >
+                AI Communication
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 rounded transition-colors duration-200 ${
+                  currentPage === 'manual' 
+                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
+                    : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
+                }`}
+                onClick={handlePageChange('manual')}
+              >
+                Manual Agents
+              </button>
+              <button
+                type="button"
+                className={`px-4 py-2 rounded transition-colors duration-200 ${
+                  currentPage === 'git' 
+                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
+                    : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
+                }`}
+                onClick={handlePageChange('git')}
+              >
+                Git Integration
+              </button>
+            </nav>
+            
+            <button 
               type="button"
-              className={`px-4 py-2 rounded transition-colors duration-200 ${
-                currentPage === 'code' 
-                  ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
-                  : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
-              }`}
-              onClick={handlePageChange('code')}
+              className={`${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'} px-3 py-1 rounded transition-colors duration-200`}
+              onClick={handleThemeToggle}
             >
-              Code & Files
+              {isDark ? '☀️ Light' : '🌙 Dark'}
             </button>
-            <button
-              type="button"
-              className={`px-4 py-2 rounded transition-colors duration-200 ${
-                currentPage === 'ai' 
-                  ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
-                  : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
-              }`}
-              onClick={handlePageChange('ai')}
-            >
-              AI Communication
-            </button>
-            <button
-              type="button"
-              className={`px-4 py-2 rounded transition-colors duration-200 ${
-                currentPage === 'manual' 
-                  ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
-                  : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
-              }`}
-              onClick={handlePageChange('manual')}
-            >
-              Manual Agents
-            </button>
-            <button
-              type="button"
-              className={`px-4 py-2 rounded transition-colors duration-200 ${
-                currentPage === 'git' 
-                  ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white') 
-                  : (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300')
-              }`}
-              onClick={handlePageChange('git')}
-            >
-              Git Integration
-            </button>
-          </nav>
-          
-          <button 
-            type="button"
-            className={`${isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300'} px-3 py-1 rounded transition-colors duration-200`}
-            onClick={handleThemeToggle}
-          >
-            {isDark ? '☀️ Light' : '🌙 Dark'}
-          </button>
+          </div>
+        </div>
+
+        {/* Page Content */}
+        <div className="flex-1 overflow-hidden">
+          {renderAllPages()}
         </div>
       </div>
-
-      {/* Page Content */}
-      <div className="flex-1 overflow-hidden">
-        {renderAllPages()}
-      </div>
-    </div>
+    </ErrorBoundary>
   );
 }

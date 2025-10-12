@@ -82,7 +82,9 @@ class WebSocketService {
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         console.error('WebSocket readyState:', this.ws?.readyState);
+        console.error('WebSocket URL:', wsUrl);
         this.isConnecting = false;
+        this.emit('error', { error: error, url: wsUrl });
       };
 
     } catch (error) {

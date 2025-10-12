@@ -52,6 +52,7 @@ export default function AICommunicationPage() {
     return () => clearInterval(interval);
   }, []);
 
+
   // WebSocket event handlers for real-time updates
   useEffect(() => {
     const handleConnected = () => {
@@ -88,11 +89,17 @@ export default function AICommunicationPage() {
       // WebSocket is working!
     };
 
+    const handleError = (data: any) => {
+      console.error('❌ WebSocket error:', data);
+      setError(`WebSocket connection failed: ${data.error?.message || 'Unknown error'}`);
+    };
+
     // Register event listeners
     websocketService.on('connected', handleConnected);
     websocketService.on('disconnected', handleDisconnected);
     websocketService.on('agent_update', handleAgentUpdate);
     websocketService.on('pong', handlePong);
+    websocketService.on('error', handleError);
 
     // Connect to WebSocket
     websocketService.connect();
@@ -103,6 +110,7 @@ export default function AICommunicationPage() {
       websocketService.off('disconnected', handleDisconnected);
       websocketService.off('agent_update', handleAgentUpdate);
       websocketService.off('pong', handlePong);
+      websocketService.off('error', handleError);
     };
   }, [realTimeMessages.length]);
 
@@ -382,7 +390,7 @@ export default function AICommunicationPage() {
       {/* WebSocket Status */}
       <div className={`absolute top-4 left-64 flex items-center space-x-2 px-3 py-1 rounded text-sm ${
         wsConnected ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-      }`}>
+      }`} style={{ display: 'none' }}>
         <div className={`w-2 h-2 rounded-full ${
           wsConnected ? 'bg-green-500' : 'bg-yellow-500'
         }`}></div>

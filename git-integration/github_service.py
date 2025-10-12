@@ -144,10 +144,10 @@ class GitHubService:
     def get_repository(self, repo_name: str) -> Dict[str, Any]:
         """Get information about a specific repository"""
         try:
-            response = requests.get(
-                f"{self.base_url}/repos/{self.username}/{repo_name}",
-                headers=self.headers
-            )
+            url = f"{self.base_url}/repos/{self.username}/{repo_name}"
+            print(f"[GITHUB_SERVICE] get_repository URL: {url}")
+            response = requests.get(url, headers=self.headers)
+            print(f"[GITHUB_SERVICE] get_repository status: {response.status_code}")
             
             if response.status_code == 200:
                 repo_data = response.json()
@@ -182,12 +182,18 @@ class GitHubService:
                    commit_message: str = None) -> Dict[str, Any]:
         """Push files to a GitHub repository using Git Tree API"""
         try:
+            print(f"[GITHUB_SERVICE] push_files called with repo_name: {repo_name}")
+            print(f"[GITHUB_SERVICE] Number of files: {len(files)}")
+            
             if not commit_message:
                 commit_message = f"AI Generated: {len(files)} files - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             
             # Get repository info
+            print(f"[GITHUB_SERVICE] Getting repository info for: {repo_name}")
             repo_info = self.get_repository(repo_name)
+            print(f"[GITHUB_SERVICE] get_repository success: {repo_info.get('success')}")
             if not repo_info["success"]:
+                print(f"[GITHUB_SERVICE] get_repository failed: {repo_info.get('error')}")
                 return repo_info
             
             default_branch = repo_info["repository"]["default_branch"]

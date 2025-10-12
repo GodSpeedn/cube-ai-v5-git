@@ -16,4 +16,6 @@ aiofiles==23.2.1
 httpx==0.25.2
 langsmith
 requests==2.31.0
-websockets==12.0 
+websockets==12.0
+aiohttp==3.9.1
+psutil==5.9.6 

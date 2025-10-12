@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getGeneratedFiles, getFileContent } from "../services/api";
 import { useTheme } from "../hooks/useTheme";
 import FolderTree from "./FolderTree";
+import CodeEditor from "./CodeEditor";
 
 interface Conversation {
   id: string;
@@ -66,6 +67,10 @@ export default function FileTree() {
   const [projectFolderStructure, setProjectFolderStructure] = useState<FileItem[]>([]);
   const [projectLoading, setProjectLoading] = useState(false);
   const [showFolderView, setShowFolderView] = useState(true);
+  
+  // Code editor states
+  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [showCodeEditor, setShowCodeEditor] = useState(false);
 
   // Load conversations
   const loadConversations = async () => {
@@ -263,14 +268,21 @@ export default function FileTree() {
   };
 
   const handleProjectFileClick = (file: FileItem) => {
-    if (file.type === 'file' && file.content) {
-      window.dispatchEvent(new CustomEvent("ai:file-select", {
-        detail: {
-          file: file.path,
-          code: file.content
-        }
-      }));
+    if (file.type === 'file') {
+      // Open file in Monaco Editor
+      setSelectedFile(file);
+      setShowCodeEditor(true);
       setError(null);
+      
+      // Also dispatch the custom event for compatibility
+      if (file.content) {
+        window.dispatchEvent(new CustomEvent("ai:file-select", {
+          detail: {
+            file: file.path,
+            code: file.content
+          }
+        }));
+      }
     }
   };
 
@@ -470,9 +482,21 @@ export default function FileTree() {
                       >
                         <div className="flex justify-between items-center">
                           <span className="font-medium flex items-center space-x-1">
-                            <span>{file.extension === '.py' ? '🐍' : '📄'}</span>
+                            <span>
+                              {file.extension === '.py' ? '🐍' : 
+                               file.extension === '.js' ? '📜' :
+                               file.extension === '.ts' ? '📘' :
+                               file.extension === '.html' ? '🌐' :
+                               file.extension === '.css' ? '🎨' :
+                               file.extension === '.json' ? '📋' :
+                               file.extension === '.md' ? '📝' :
+                               file.is_code ? '💻' : '📄'}
+                            </span>
                             <span>{file.name}</span>
                             {file.is_test && <span title="Test file">🧪</span>}
+                            {file.is_code && <span title="Code file">💻</span>}
+                            {file.is_config && <span title="Config file">⚙️</span>}
+                            {file.is_documentation && <span title="Documentation">📚</span>}
                           </span>
                           <span className={`${
                             isDark ? 'text-gray-400' : 'text-gray-500'
@@ -702,9 +726,21 @@ export default function FileTree() {
                       >
                         <div className="flex justify-between items-center">
                           <span className="font-medium flex items-center space-x-1">
-                            <span>{file.extension === '.py' ? '🐍' : '📄'}</span>
+                            <span>
+                              {file.extension === '.py' ? '🐍' : 
+                               file.extension === '.js' ? '📜' :
+                               file.extension === '.ts' ? '📘' :
+                               file.extension === '.html' ? '🌐' :
+                               file.extension === '.css' ? '🎨' :
+                               file.extension === '.json' ? '📋' :
+                               file.extension === '.md' ? '📝' :
+                               file.is_code ? '💻' : '📄'}
+                            </span>
                             <span>{file.name}</span>
                             {file.is_test && <span title="Test file">🧪</span>}
+                            {file.is_code && <span title="Code file">💻</span>}
+                            {file.is_config && <span title="Config file">⚙️</span>}
+                            {file.is_documentation && <span title="Documentation">📚</span>}
                           </span>
                           <span className={`${
                             isDark ? 'text-gray-400' : 'text-gray-500'
@@ -725,6 +761,17 @@ export default function FileTree() {
             </div>
           )}
         </div>
+      )}
+      
+      {/* Monaco Code Editor Modal */}
+      {showCodeEditor && selectedFile && (
+        <CodeEditor
+          file={selectedFile}
+          onClose={() => {
+            setShowCodeEditor(false);
+            setSelectedFile(null);
+          }}
+        />
       )}
     </div>
   );

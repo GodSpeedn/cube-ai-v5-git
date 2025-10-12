@@ -1,0 +1,278 @@
+# 🔍 GitHub Upload Troubleshooting Guide
+
+## Problem: Files Saved But Not Uploaded to GitHub
+
+If your code is being saved locally but not uploaded to GitHub, follow this step-by-step troubleshooting guide.
+
+---
+
+## 🚀 Quick Diagnosis
+
+### **Step 1: Run the Debug Tool**
+```bash
+# Run this comprehensive debug script:
+debug_github_upload.bat
+```
+
+This will check:
+- ✅ GitHub credentials in environment
+- ✅ GitHub service import
+- ✅ GitHub API connection
+- ✅ Repository creation permissions
+- ✅ Recent project files
+- ✅ File manager status
+
+### **Step 2: Test File Upload Directly**
+```bash
+cd backend-ai
+python test_file_upload.py
+```
+
+This will:
+- Create a test file
+- Try to save and upload it
+- Show detailed results
+
+---
+
+## 🔍 Common Issues and Solutions
+
+### **Issue 1: GitHub Service Import Failed**
+
+**Symptoms:**
+```
+⚠️ GitHub service not available: No module named 'github_service'
+```
+
+**Solution:**
+1. Check if `git-integration` folder exists
+2. Verify `github_service.py` is present
+3. Run the import test:
+   ```bash
+   cd backend-ai
+   python test_github_import.py
+   ```
+
+### **Issue 2: GitHub Credentials Not Loaded**
+
+**Symptoms:**
+```
+⚠️ GitHub not configured - code saved locally only
+```
+
+**Solution:**
+1. Check `backend-ai/keys.txt` has your credentials:
+   ```
+   GITHUB_TOKEN=ghp_your_actual_token
+   GITHUB_USERNAME=your_username
+   ```
+2. Restart services to reload environment variables
+3. Use `start_all_safe.bat` to ensure variables are loaded
+
+### **Issue 3: GitHub Token Invalid/Expired**
+
+**Symptoms:**
+```
+❌ GitHub API connection failed: 401
+❌ Token validation failed
+```
+
+**Solution:**
+1. Generate new token at https://github.com/settings/tokens
+2. Ensure token has these scopes:
+   - `repo` (Full control of private repositories)
+   - `workflow` (Update GitHub Action workflows)
+   - `write:packages` (Upload packages to GitHub Package Registry)
+3. Update `keys.txt` with new token
+4. Restart services
+
+### **Issue 4: Repository Creation Permission Denied**
+
+**Symptoms:**
+```
+❌ Repository creation failed: 403
+```
+
+**Solution:**
+1. Check if you've hit GitHub's repository limit
+2. Verify token has `repo` scope
+3. Try creating a repository manually on GitHub to test permissions
+
+### **Issue 5: Network/Firewall Issues**
+
+**Symptoms:**
+```
+❌ Network error: Failed to establish connection
+❌ Connection timeout
+```
+
+**Solution:**
+1. Check internet connection
+2. Verify no firewall blocking GitHub API (api.github.com)
+3. Try accessing https://api.github.com in browser
+
+### **Issue 6: File Manager Not Triggering Upload**
+
+**Symptoms:**
+- Code saved locally ✅
+- No GitHub upload attempt ❌
+- No "🚀 STARTING GITHUB AUTO-UPLOAD" in logs
+
+**Solution:**
+1. Check if `_auto_upload_to_github` is being called
+2. Verify `file_manager.save_code()` is being used
+3. Check service logs for any errors
+
+---
+
+## 📋 Step-by-Step Debug Process
+
+### **1. Check Service Status**
+```bash
+# Verify services are running:
+netstat -an | findstr ":8001"  # Online Agent Service
+```
+
+### **2. Check Environment Variables**
+```bash
+# In the service window, check if variables are loaded:
+echo %GITHUB_TOKEN%
+echo %GITHUB_USERNAME%
+```
+
+### **3. Check Service Logs**
+Look for these messages in the service window:
+```
+✅ GitHub service modules imported successfully
+✅ Found GitHub credentials in environment variables
+🔧 Using direct GitHub API with environment credentials
+🚀 STARTING GITHUB AUTO-UPLOAD
+```
+
+### **4. Test Manual Upload**
+```bash
+cd backend-ai
+python test_file_upload.py
+```
+
+### **5. Check Generated Files**
+```bash
+# Look for recent projects:
+dir backend-ai\generated\projects /od
+```
+
+---
+
+## 🔧 Manual Testing Commands
+
+### **Test GitHub API Directly**
+```python
+import requests
+import os
+
+token = os.environ.get('GITHUB_TOKEN')
+headers = {'Authorization': f'token {token}'}
+response = requests.get('https://api.github.com/user', headers=headers)
+print(f"Status: {response.status_code}")
+print(f"User: {response.json().get('login')}")
+```
+
+### **Test Repository Creation**
+```python
+import requests
+import os
+
+token = os.environ.get('GITHUB_TOKEN')
+username = os.environ.get('GITHUB_USERNAME')
+headers = {'Authorization': f'token {token}'}
+
+repo_data = {
+    'name': 'test-repo-manual',
+    'description': 'Manual test repository',
+    'private': True
+}
+
+response = requests.post('https://api.github.com/user/repos', 
+                        headers=headers, json=repo_data)
+print(f"Status: {response.status_code}")
+print(f"Response: {response.text}")
+```
+
+---
+
+## 📊 Expected Log Flow
+
+When everything works correctly, you should see this sequence:
+
+```
+1. Service startup:
+   ✅ GitHub service modules imported successfully
+   ✅ Found GitHub credentials in environment variables
+
+2. Code generation:
+   🔍 Saving source code from coder (coder)
+   📝 Task: Create a calculator - Source Code Generated by coder (coder)
+   📂 File type: src
+   💬 Conversation ID: manual_workflow_123
+
+3. GitHub upload:
+   ============================================================
+   🚀 STARTING GITHUB AUTO-UPLOAD
+   📁 Project: calculator_project_abc123
+   📝 Description: Create a calculator - Source Code Generated by coder
+   📂 Directory: C:\...\generated\projects\calculator_project_abc123
+   ============================================================
+   ✅ Found GitHub credentials in environment variables
+      Username: GodSpeedn
+   🐙 GitHub configuration loaded from: environment
+   🔧 Using direct GitHub API with environment credentials
+   📁 Creating repository: calculator-project-abc123
+   ✅ Repository created: https://github.com/GodSpeedn/calculator-project-abc123
+   📤 Uploading 3 files...
+   ============================================================
+   ✅ GITHUB UPLOAD SUCCESSFUL!
+   🐙 Repository URL: https://github.com/GodSpeedn/calculator-project-abc123
+   📊 Files uploaded: 3
+   ⏰ Upload time: 2025-01-10T14:30:45.123456
+   ============================================================
+```
+
+---
+
+## 🎯 Quick Fixes
+
+### **If Nothing Works:**
+1. **Restart everything**:
+   ```bash
+   resolve_port_conflicts.bat
+   start_all_safe.bat
+   ```
+
+2. **Check GitHub token**:
+   - Go to https://github.com/settings/tokens
+   - Generate new token with `repo` scope
+   - Update `keys.txt`
+
+3. **Test manually**:
+   ```bash
+   cd backend-ai
+   python test_file_upload.py
+   ```
+
+### **If Upload Works But Files Are Wrong:**
+- Check file naming in `_generate_filename()`
+- Verify file content is being extracted correctly
+- Check project structure in generated folder
+
+---
+
+## 📞 Getting Help
+
+If you're still having issues:
+
+1. **Run the debug tool** and share the output
+2. **Check service logs** for specific error messages
+3. **Test with a simple workflow** (single coder agent)
+4. **Verify GitHub token** works manually
+
+**The debug tools will show you exactly where the process is failing!** 🔍

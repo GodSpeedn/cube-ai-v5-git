@@ -106,9 +106,9 @@ class ConversationManager:
             # Load default prompt templates (commented out for now to avoid errors)
             # self._load_default_templates()
             
-            print(f"✅ Conversation manager initialized with database at: {self.db_path}")
+            print(f"Conversation manager initialized with database at: {self.db_path}")
         except Exception as e:
-            print(f"❌ Failed to initialize conversation manager: {e}")
+            print(f"Failed to initialize conversation manager: {e}")
             # Create a fallback in-memory manager
             self.data_dir = None
             self.db_path = None
