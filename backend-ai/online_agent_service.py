@@ -368,6 +368,7 @@ class OnlineAgentInstance:
               
               Example Bad: "Please clarify what you want" (NEVER ask for clarification!)
               Example Bad: "Here's the code: def add(a,b)..." (NEVER write code!)
+              Example Bad: "ERROR: No code provided to test" (NEVER echo error messages - create instructions instead!)
               
             - CODER: You ONLY write SOURCE CODE (implementation code). You do NOT write tests, coordinate, plan, or ask questions.
               Your ONLY job:
@@ -494,14 +495,14 @@ class OnlineAgentInstance:
                 test_patterns = [
                     "import unittest", "import pytest", "from unittest", "from pytest",
                     "class Test", "TestCase", "def test_", "@pytest", "@unittest",
-                    "self.assert", "assert ", "unittest.main()"
+                    "self.assert", "unittest.main()"
                 ]
                 has_test_code = any(pattern in response_content for pattern in test_patterns)
                 
                 if has_test_code:
-                    logging.warning(f"[WARN] Coder agent generated TEST code instead of source code - NOT saving")
+                    logging.warning(f"[WARN] Coder agent generated TEST code instead of source code - NOT saving to src/")
                     logging.warning(f"[WARN] Response preview: {response_content[:200]}...")
-                    return response_content  # Return early, don't save
+                    logging.warning(f"[WARN] The coder should generate implementation code, not tests!")
                 
                 # Check for various completion signals
                 completion_signals = ["CODE COMPLETE:", "CODE COMPLETE", "```python", "```", "def ", "class ", "import "]
@@ -513,10 +514,13 @@ class OnlineAgentInstance:
                 
                 logging.info(f"[DEBUG] has_completion_signal: {has_completion_signal}, has_python_code: {has_python_code}, has_test_code: {has_test_code}")
                 
-                if has_completion_signal or has_python_code:
+                if (has_completion_signal or has_python_code) and not has_test_code:
                     logging.info(f"[SEARCH] Coder agent detected SOURCE code in response - calling _save_generated_code")
                     await self._save_generated_code(response_content, message.conversation_id, file_type="src")
                     logging.info(f"[DEBUG] _save_generated_code completed")
+                elif has_test_code:
+                    # Don't save, but don't crash either - the coordinator needs to try again
+                    logging.warning(f"[WARN] Skipping save for coder's test code - workflow will continue")
                 else:
                     logging.info(f"[SEARCH] Coder agent response without code patterns: {response_content[:100]}...")
             else:
