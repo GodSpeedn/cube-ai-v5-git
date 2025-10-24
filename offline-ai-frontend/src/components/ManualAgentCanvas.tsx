@@ -1690,19 +1690,43 @@ Always provide clear, actionable results and communicate effectively with other 
             {/* Agent-to-Agent Conversation */}
             {(() => {
               // Filter messages between the two connected agents
-              // Match by role name (primary) or box ID (fallback)
+              // Enhanced matching: case-insensitive, partial matches, role/ID/name matching
               const connectionMessages = agentMessages.filter(msg => {
-                const fromRole = fromBox!.role || fromBox!.agentType;
-                const toRole = toBox!.role || toBox!.agentType;
+                const fromRole = (fromBox!.role || fromBox!.agentType || '').toLowerCase().trim();
+                const toRole = (toBox!.role || toBox!.agentType || '').toLowerCase().trim();
+                const fromId = fromBox!.id.toLowerCase();
+                const toId = toBox!.id.toLowerCase();
+                
+                // Normalize message agent names
+                const msgFrom = (msg.fromAgent || '').toLowerCase().trim();
+                const msgTo = (msg.toAgent || '').toLowerCase().trim();
+                
+                // Helper function to check if strings match (exact or partial)
+                const matches = (str1: string, str2: string) => {
+                  if (!str1 || !str2) return false;
+                  // Exact match
+                  if (str1 === str2) return true;
+                  // Partial match (either direction)
+                  if (str1.includes(str2) || str2.includes(str1)) return true;
+                  // Check if role name is contained in agent name
+                  // e.g., "Coder Agent" matches "coder"
+                  const words1 = str1.split(/[\s_-]+/);
+                  const words2 = str2.split(/[\s_-]+/);
+                  return words1.some(w1 => words2.some(w2 => w1 === w2 || w1.includes(w2) || w2.includes(w1)));
+                };
                 
                 // Check if message is between these two agents (in either direction)
-                // Try matching by role name first, then by box ID
-                return (
-                  (msg.fromAgent === fromRole && msg.toAgent === toRole) ||
-                  (msg.fromAgent === toRole && msg.toAgent === fromRole) ||
-                  (msg.fromAgent === fromBox!.id && msg.toAgent === toBox!.id) ||
-                  (msg.fromAgent === toBox!.id && msg.toAgent === fromBox!.id)
+                const isFromToMatch = (
+                  (matches(msgFrom, fromRole) && matches(msgTo, toRole)) ||
+                  (matches(msgFrom, fromId) && matches(msgTo, toId))
                 );
+                
+                const isToFromMatch = (
+                  (matches(msgFrom, toRole) && matches(msgTo, fromRole)) ||
+                  (matches(msgFrom, toId) && matches(msgTo, fromId))
+                );
+                
+                return isFromToMatch || isToFromMatch;
               });
               
               return (

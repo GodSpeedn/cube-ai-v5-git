@@ -387,9 +387,24 @@ class OnlineAgentInstance:
               1. CREATE comprehensive test cases for the code provided by the coordinator
               2. Use pytest or unittest framework
               3. Include test functions (test_*), assertions, edge cases
-              4. When finished, say "TESTING COMPLETE:" followed by test code in ```python ... ```
-              5. Return your test code to the coordinator
+              4. Test ALL functions and methods in the code
+              5. Include edge cases: zero, negative numbers, large numbers, empty inputs, None values
+              6. Test both valid inputs and invalid inputs (error conditions)
+              7. Use descriptive test names that explain what is being tested
+              8. Include multiple test functions for complex code
+              9. For multi-function code, create separate test functions for each function
+              10. Do NOT include the original code in your test file
+              11. Do NOT use import statements for the code being tested - functions will be available
+              12. When finished, say "TESTING COMPLETE:" followed by test code in ```python ... ```
+              13. Return your test code to the coordinator
               IMPORTANT: Do NOT run the tests. Do NOT write the main code. Do NOT suggest improvements.
+              
+              EXAMPLE for complex code:
+              If given code with add(), subtract(), multiply():
+              - Create test_add() with multiple test cases
+              - Create test_subtract() with multiple test cases  
+              - Create test_multiply() with multiple test cases
+              - Test edge cases for each function
               
             - RUNNER: You ONLY execute code and report results.
               1. Execute the code provided by the coordinator
@@ -462,19 +477,35 @@ class OnlineAgentInstance:
             
             # Save test code to file if this is a tester agent and test code is generated
             if "tester" in self.config.role.lower():
-                # Check for test code patterns
-                test_signals = ["TESTING COMPLETE:", "TESTING COMPLETE", "def test_", "class Test", "import pytest", "import unittest", "```python"]
+                logging.info(f"[TEST] Tester agent processing response...")
+                # Check for test code patterns - expanded list
+                test_signals = [
+                    "TESTING COMPLETE:", "TESTING COMPLETE", "TEST COMPLETE",
+                    "def test_", "class Test", 
+                    "import pytest", "import unittest", 
+                    "```python", "```",
+                    "@pytest", "@unittest"
+                ]
                 has_test_signal = any(signal in response_content for signal in test_signals)
                 
-                # Also check if response contains test code patterns
-                test_patterns = ["def test_", "class Test", "assert ", "self.assert", "pytest", "unittest"]
+                # Also check if response contains test code patterns - expanded
+                test_patterns = [
+                    "def test_", "class Test", 
+                    "assert ", "self.assert", "self.assertEqual",
+                    "pytest", "unittest",
+                    "test_case", "TestCase",
+                    "def setUp", "def tearDown"
+                ]
                 has_test_code = any(pattern in response_content for pattern in test_patterns)
                 
+                logging.info(f"[TEST] Test signal detected: {has_test_signal}, Test code detected: {has_test_code}")
+                
                 if has_test_signal or has_test_code:
-                    logging.info(f"[SEARCH] Tester agent detected test code in response")
+                    logging.info(f"[TEST] Tester agent detected test code - saving to file...")
                     await self._save_generated_code(response_content, message.conversation_id, file_type="tests")
+                    logging.info(f"[TEST] Test file save completed")
                 else:
-                    logging.info(f"[SEARCH] Tester agent response without test code patterns: {response_content[:100]}...")
+                    logging.info(f"[TEST] Tester agent response without test code patterns: {response_content[:100]}...")
             
             self.status = OnlineAgentStatus.COMPLETED
             return response_content
@@ -485,7 +516,7 @@ class OnlineAgentInstance:
             return f"Error: {str(e)}"
     
     async def _save_generated_code(self, response_content: str, conversation_id: str, file_type: str = "src"):
-        """Save generated code to file and upload to GitHub"""
+        """Save generated code to file and upload to GitHub - supports multi-file projects"""
         try:
             # Import file manager
             from file_manager import get_file_manager
@@ -501,58 +532,73 @@ class OnlineAgentInstance:
                 user_set = bool(os.environ.get('GITHUB_USERNAME'))
                 logging.info(f"[DEBUG] GITHUB_TOKEN set: {token_set}, GITHUB_USERNAME set: {user_set}")
             
-            # Extract code from response
-            code = self._extract_code_from_response(response_content)
-            if not code:
-                logging.warning("No code found in response")
-                return
+            # Extract all code blocks from response (supports multiple files)
+            code_blocks = self._extract_multiple_code_blocks(response_content)
+            if not code_blocks:
+                # Fallback to single code extraction
+                code = self._extract_code_from_response(response_content)
+                if not code:
+                    logging.warning("No code found in response")
+                    return
+                code_blocks = [code]
+            
+            logging.info(f"[MULTIFILE] Found {len(code_blocks)} code block(s) to save")
             
             # Get task description from conversation context with better context
             task_description = self._get_task_description_from_context(conversation_id)
             
-            # Enhance task description with agent context
-            file_type_label = "Test Code" if file_type == "tests" else "Source Code"
-            enhanced_task_description = f"{task_description} - {file_type_label} Generated by {self.config.name} ({self.config.role})"
-            
-            logging.info(f"[SEARCH] Saving {file_type_label.lower()} from {self.config.name} ({self.config.role})")
-            logging.info(f"[NOTE] Task: {enhanced_task_description}")
-            logging.info(f"[FOLDER] File type: {file_type}")
-            logging.info(f"[CHAT] Conversation ID: {conversation_id}")
-            
-            # Save code using advanced file manager
-            result = file_manager.save_code(
-                code=code,
-                file_type=file_type,
-                conversation_id=conversation_id,
-                task_description=enhanced_task_description
-            )
-            
-            if result.get("success"):
-                logging.info(f"[SAVE] Code saved successfully: {result['filepath']}")
-                logging.info(f"[DIR] Project: {result['project_name']}")
+            # Save each code block
+            saved_files = []
+            for idx, code in enumerate(code_blocks, 1):
+                # Enhance task description with agent context and file number
+                file_type_label = "Test Code" if file_type == "tests" else "Source Code"
+                if len(code_blocks) > 1:
+                    enhanced_task_description = f"{task_description} - {file_type_label} Part {idx}/{len(code_blocks)} - Generated by {self.config.name} ({self.config.role})"
+                else:
+                    enhanced_task_description = f"{task_description} - {file_type_label} Generated by {self.config.name} ({self.config.role})"
                 
-                # Store project info for manual upload
-                self.last_project_saved = {
-                    "conversation_id": conversation_id,
-                    "project_name": result['project_name'],
-                    "filepath": result['filepath']
-                }
-                logging.info(f"[INFO] Project saved and ready for upload: {result['project_name']}")
+                logging.info(f"[SEARCH] Saving {file_type_label.lower()} {idx}/{len(code_blocks)} from {self.config.name} ({self.config.role})")
+                logging.info(f"[NOTE] Task: {enhanced_task_description}")
+                logging.info(f"[FOLDER] File type: {file_type}")
+                logging.info(f"[CHAT] Conversation ID: {conversation_id}")
                 
-                # Log GitHub result (should be pending for manual upload)
-                github_result = result.get("github_result", {})
-                if github_result.get("status") == "pending":
+                # Save code using advanced file manager
+                result = file_manager.save_code(
+                    code=code,
+                    file_type=file_type,
+                    conversation_id=conversation_id,
+                    task_description=enhanced_task_description
+                )
+                
+                if result.get("success"):
+                    logging.info(f"[SAVE] Code {idx}/{len(code_blocks)} saved successfully: {result['filepath']}")
+                    logging.info(f"[DIR] Project: {result['project_name']}")
+                    saved_files.append(result['filepath'])
+                    
+                    # Store project info for manual upload (update with latest)
+                    self.last_project_saved = {
+                        "conversation_id": conversation_id,
+                        "project_name": result['project_name'],
+                        "filepath": result['filepath'],
+                        "total_files": len(code_blocks)
+                    }
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    logging.error(f"[ERROR] Failed to save code {idx}/{len(code_blocks)}: {error_msg}")
+            
+            # Log final summary
+            if saved_files:
+                logging.info(f"[INFO] Successfully saved {len(saved_files)} file(s) to project: {self.last_project_saved.get('project_name')}")
+                logging.info(f"[INFO] Project ready for upload")
+                
+                # Log GitHub result
+                if result.get("github_result", {}).get("status") == "pending":
                     logging.info("[INFO] Files saved - ready for manual GitHub upload")
-                elif github_result.get("status") == "github_not_available":
+                elif result.get("github_result", {}).get("status") == "github_not_available":
                     logging.info("[INFO] GitHub not available - code saved locally only")
                     logging.info("[TIP] To enable GitHub upload: Configure GitHub in the Git Integration tab")
-                else:
-                    error_msg = github_result.get('error', 'Unknown error')
-                    logging.warning(f"[WARN] GitHub upload issue: {error_msg}")
-                    logging.info("[TIP] Check GitHub configuration and try manual upload")
             else:
-                error_msg = result.get('error', 'Unknown error')
-                logging.error(f"[ERROR] Failed to save code: {error_msg}")
+                logging.error("[ERROR] No files were saved successfully")
             
         except Exception as e:
             logging.error(f"[ERROR] Error in _save_generated_code: {e}")
@@ -697,6 +743,72 @@ This code was generated by an AI agent workflow.
             logging.error(f"Failed to extract code: {str(e)}")
             return ""
     
+    def _extract_multiple_code_blocks(self, response: str) -> List[str]:
+        """Extract multiple code blocks from response for multi-file projects"""
+        try:
+            logging.info(f"[MULTIFILE] Searching for multiple code blocks...")
+            code_blocks = []
+            
+            # Look for all ```python code blocks
+            start_marker = "```python"
+            end_marker = "```"
+            
+            current_pos = 0
+            while True:
+                start = response.find(start_marker, current_pos)
+                if start == -1:
+                    break
+                
+                start += len(start_marker)
+                end = response.find(end_marker, start)
+                if end == -1:
+                    break
+                
+                code = response[start:end].strip()
+                if len(code) > 10:  # Minimum code length
+                    code_blocks.append(code)
+                    logging.info(f"[MULTIFILE] Found code block {len(code_blocks)}: {len(code)} characters")
+                
+                current_pos = end + len(end_marker)
+            
+            # If no ```python blocks, look for generic ``` blocks
+            if not code_blocks:
+                current_pos = 0
+                while True:
+                    start = response.find("```", current_pos)
+                    if start == -1:
+                        break
+                    
+                    # Skip if this is a closing marker
+                    if start > 0 and response[start-1:start+3] == "```":
+                        current_pos = start + 3
+                        continue
+                    
+                    start += 3
+                    # Skip language identifier if present
+                    newline_pos = response.find('\n', start)
+                    if newline_pos != -1 and newline_pos - start < 20:
+                        start = newline_pos + 1
+                    
+                    end = response.find("```", start)
+                    if end == -1:
+                        break
+                    
+                    code = response[start:end].strip()
+                    # Verify it looks like Python code
+                    if len(code) > 10 and any(keyword in code for keyword in ["def ", "import ", "class ", "assert ", "test_"]):
+                        code_blocks.append(code)
+                        logging.info(f"[MULTIFILE] Found generic code block {len(code_blocks)}: {len(code)} characters")
+                    
+                    current_pos = end + 3
+            
+            logging.info(f"[MULTIFILE] Total code blocks found: {len(code_blocks)}")
+            return code_blocks
+            
+        except Exception as e:
+            logging.error(f"[MULTIFILE] Error extracting multiple code blocks: {e}")
+            return []
+    
     def get_status(self) -> OnlineAgentStatus:
         """Get current agent status"""
         return self.status
@@ -835,13 +947,20 @@ class OnlineWorkflowManager:
             # Process message
             response_content = await target_agent.process_message(current_message, conversation_memory)
             
-            # Create response message and add to history
+            # Create response message and add to history with agent metadata
             response_message = OnlineAgentMessage(
                 from_agent=current_message.to_agent,
                 to_agent=current_message.from_agent,
                 message_type=MessageType.RESPONSE,
                 content=response_content,
-                conversation_id=current_message.conversation_id
+                conversation_id=current_message.conversation_id,
+                metadata={
+                    "from_agent_role": target_agent.config.role,
+                    "from_agent_name": target_agent.config.name,
+                    "from_agent_model": target_agent.config.model_name,
+                    "to_agent_role": agents.get(current_message.from_agent).config.role if agents.get(current_message.from_agent) else "unknown",
+                    "to_agent_name": agents.get(current_message.from_agent).config.name if agents.get(current_message.from_agent) else "unknown"
+                }
             )
             self.active_workflows[workflow_id]["message_history"].append(response_message)
             self.agent_manager.add_message_to_history(workflow_id, response_message)
