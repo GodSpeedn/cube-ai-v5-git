@@ -350,14 +350,17 @@ class OnlineAgentInstance:
             - COORDINATOR: You ONLY coordinate and delegate. You do NOT write ANY code.
               Your ONLY job:
               1. Break down the user's task into simple instructions
-              2. Tell the coder EXACTLY what code to write (be specific!)
-              3. When coder responds, say "COORDINATION COMPLETE"
+              2. Delegate to the appropriate agent (coder, tester, runner)
+              3. After receiving results from an agent, delegate to the next agent if needed
+              4. ONLY say "COORDINATION COMPLETE" when ALL agents have finished their work
               
               CRITICAL RULES:
               - DO NOT write code blocks (no ``` or CODE COMPLETE)
               - DO NOT include Python code in your response
-              - ONLY give instructions to the coder
+              - ONLY give instructions to agents
               - Keep your message short and clear
+              - ALWAYS check if tester needs to test the code after coder finishes
+              - ONLY complete when ALL required agents have finished
               
               Example: "Please write a Python function that adds two numbers. Include error handling."
               NOT: "Here's the code: def add(a,b)..." (NEVER DO THIS!)
@@ -1028,11 +1031,22 @@ class OnlineWorkflowManager:
                 break
         
         if current_agent_role == "coordinator":
-            # Coordinator can only complete with coordination-specific phrases
-            if any(phrase in last_response.lower() for phrase in [
-                "coordination complete", "workflow complete", "all tasks delegated"
+            # Coordinator can only complete if ALL other agents have completed AND it says complete
+            # Check if there are any incomplete agents
+            has_incomplete_agents = any(
+                not agent_completion.get(agent_id, False) 
+                for agent_id, role in agent_roles.items() 
+                if agent_id != current_agent_role and role.lower() != "coordinator"
+            )
+            
+            # Only complete if no incomplete agents AND coordinator says complete
+            if not has_incomplete_agents and any(phrase in last_response.lower() for phrase in [
+                "coordination complete", "workflow complete", "all tasks delegated", "all agents completed"
             ]):
                 return True
+            
+            # If there are incomplete agents, DON'T complete
+            return False
         elif current_agent_role == "coder":
             # Coder can complete with code-specific phrases
             if any(phrase in last_response.lower() for phrase in [
@@ -1075,30 +1089,41 @@ class OnlineWorkflowManager:
         return False
     
     def _get_next_agent(self, current_agent: str, agent_roles: Dict[str, str], agent_completion: Dict[str, bool]) -> Optional[str]:
-        """Get the next agent to process based on workflow logic, not circular routing"""
+        """Get the next agent to process based on workflow logic with priority order"""
         current_role = agent_roles.get(current_agent, "").lower()
         
-        # Define workflow patterns based on agent roles
+        # Define workflow patterns based on agent roles with priority
         if current_role == "coordinator":
-            # Coordinator should delegate to next available agent
+            # Coordinator should delegate in priority order: coder -> tester -> runner
+            # 1. First check for coder if not completed
             for agent_id, role in agent_roles.items():
-                if agent_id != current_agent and not agent_completion.get(agent_id, False):
+                if "coder" in role.lower() and agent_id != current_agent and not agent_completion.get(agent_id, False):
                     return agent_id
+            
+            # 2. Then check for tester if coder is done
+            for agent_id, role in agent_roles.items():
+                if "tester" in role.lower() and agent_id != current_agent and not agent_completion.get(agent_id, False):
+                    return agent_id
+            
+            # 3. Finally check for runner
+            for agent_id, role in agent_roles.items():
+                if "runner" in role.lower() and agent_id != current_agent and not agent_completion.get(agent_id, False):
+                    return agent_id
+            
+            # No more agents to delegate to
+            return None
         
         elif current_role == "coder":
-            # Coder completes code, workflow should end or go to tester if available
-            for agent_id, role in agent_roles.items():
-                if role == "tester" and not agent_completion.get(agent_id, False):
-                    return agent_id
-            # No tester, workflow complete
+            # Coder should NOT delegate - this code path shouldn't be reached
+            # Non-coordinator agents should return to coordinator
             return None
         
         elif current_role == "tester":
-            # Tester completes validation, workflow should end
+            # Tester should NOT delegate
             return None
         
         elif current_role == "runner":
-            # Runner executes code, workflow should end
+            # Runner should NOT delegate
             return None
         
         # Default: no more agents to process
