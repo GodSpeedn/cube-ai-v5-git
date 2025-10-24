@@ -492,12 +492,27 @@ class OnlineAgentInstance:
                 logging.info(f"[DEBUG] Coder agent confirmed, checking for code...")
                 
                 # First, check if response contains TEST code (which coder should NOT generate)
-                test_patterns = [
-                    "import unittest", "import pytest", "from unittest", "from pytest",
-                    "class Test", "TestCase", "def test_", "@pytest", "@unittest",
-                    "self.assert", "unittest.main()"
-                ]
-                has_test_code = any(pattern in response_content for pattern in test_patterns)
+                # Only flag as test code if it has MULTIPLE strong test indicators
+                test_indicators = 0
+                
+                # Strong test indicators (each counts as 1 point)
+                if "import unittest" in response_content or "from unittest" in response_content:
+                    test_indicators += 1
+                if "import pytest" in response_content or "from pytest" in response_content:
+                    test_indicators += 1
+                if "class Test" in response_content and "TestCase" in response_content:
+                    test_indicators += 2  # Very strong indicator
+                if "def test_" in response_content:
+                    test_indicators += 1
+                if "unittest.main()" in response_content:
+                    test_indicators += 1
+                if "@pytest" in response_content or "@unittest" in response_content:
+                    test_indicators += 1
+                
+                # Only consider it test code if it has 2 or more indicators
+                has_test_code = test_indicators >= 2
+                
+                logging.info(f"[DEBUG] Test indicators count: {test_indicators}, has_test_code: {has_test_code}")
                 
                 if has_test_code:
                     logging.warning(f"[WARN] Coder agent generated TEST code instead of source code - NOT saving to src/")
