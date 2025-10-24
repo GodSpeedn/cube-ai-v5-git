@@ -1,0 +1,25 @@
+{
+  "project_id": "a4367042",
+  "project_name": "advanced_data_analysis_tool_wi_project_a4367042",
+  "task_description": "Advanced data analysis tool with comprehensive reporting",
+  "conversation_id": "test_github_upload_1759798698",
+  "created_at": "2025-10-07T11:58:20.189057",
+  "files": {
+    "src": [
+      {
+        "filename": "data_analyzer.py",
+        "filepath": "generated\\projects\\advanced_data_analysis_tool_wi_project_a4367042\\src\\data_analyzer.py",
+        "created_at": "2025-10-07T11:58:20.201068",
+        "size": 1843,
+        "lines": 63,
+        "encoding": "utf-8",
+        "syntax_valid": false,
+        "syntax_error": "Syntax error at line 61: unterminated string literal (detected at line 61)"
+      }
+    ],
+    "tests": [],
+    "docs": []
+  },
+  "github_repo": null,
+  "status": "active"
+}
