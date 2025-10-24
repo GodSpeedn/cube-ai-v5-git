@@ -369,14 +369,16 @@ class OnlineAgentInstance:
               Example Bad: "Please clarify what you want" (NEVER ask for clarification!)
               Example Bad: "Here's the code: def add(a,b)..." (NEVER write code!)
               
-            - CODER: You ONLY write code. You do NOT coordinate, plan, or ask questions.
+            - CODER: You ONLY write SOURCE CODE (implementation code). You do NOT write tests, coordinate, plan, or ask questions.
               Your ONLY job:
               1. Read the coordinator's instructions carefully
-              2. Write COMPLETE, WORKING Python code immediately
+              2. Write COMPLETE, WORKING Python SOURCE CODE immediately (classes, functions, implementation)
               3. Put your code in a code block: ```python\n<your code>\n```
               4. Say "CODE COMPLETE:" BEFORE the code block
               
               CRITICAL RULES:
+              - NEVER write test code (no unittest, no pytest, no def test_*, no TestCase classes)
+              - ONLY write the actual implementation code (classes, functions, business logic)
               - NEVER say "I will write the code" - ACTUALLY WRITE IT
               - NEVER ask for clarification - make reasonable assumptions
               - ALWAYS include the full code in ```python ... ``` format
@@ -385,11 +387,23 @@ class OnlineAgentInstance:
               - Make the code complete and runnable
               - If instructions are unclear, implement a reasonable interpretation
               
-              Example response format:
+              Example CORRECT response (SOURCE CODE):
               CODE COMPLETE:
               ```python
-              def add(a, b):
-                  return a + b
+              class ScientificCalculator:
+                  def add(self, a, b):
+                      return a + b
+                  
+                  def multiply(self, a, b):
+                      return a * b
+              ```
+              
+              Example WRONG response (TEST CODE - DO NOT DO THIS):
+              ```python
+              import unittest
+              class TestCalculator(unittest.TestCase):  # WRONG! This is test code!
+                  def test_add(self):  # WRONG! This is test code!
+                      pass
               ```
               
               BAD Example: "I will write the code" (NO! Write it NOW!)
@@ -475,6 +489,20 @@ class OnlineAgentInstance:
             logging.info(f"[DEBUG] Checking agent role: {self.config.role}")
             if "coder" in self.config.role.lower():
                 logging.info(f"[DEBUG] Coder agent confirmed, checking for code...")
+                
+                # First, check if response contains TEST code (which coder should NOT generate)
+                test_patterns = [
+                    "import unittest", "import pytest", "from unittest", "from pytest",
+                    "class Test", "TestCase", "def test_", "@pytest", "@unittest",
+                    "self.assert", "assert ", "unittest.main()"
+                ]
+                has_test_code = any(pattern in response_content for pattern in test_patterns)
+                
+                if has_test_code:
+                    logging.warning(f"[WARN] Coder agent generated TEST code instead of source code - NOT saving")
+                    logging.warning(f"[WARN] Response preview: {response_content[:200]}...")
+                    return response_content  # Return early, don't save
+                
                 # Check for various completion signals
                 completion_signals = ["CODE COMPLETE:", "CODE COMPLETE", "```python", "```", "def ", "class ", "import "]
                 has_completion_signal = any(signal in response_content for signal in completion_signals)
@@ -483,10 +511,10 @@ class OnlineAgentInstance:
                 python_patterns = ["def ", "class ", "import ", "if __name__", "print(", "return "]
                 has_python_code = any(pattern in response_content for pattern in python_patterns)
                 
-                logging.info(f"[DEBUG] has_completion_signal: {has_completion_signal}, has_python_code: {has_python_code}")
+                logging.info(f"[DEBUG] has_completion_signal: {has_completion_signal}, has_python_code: {has_python_code}, has_test_code: {has_test_code}")
                 
                 if has_completion_signal or has_python_code:
-                    logging.info(f"[SEARCH] Coder agent detected code in response - calling _save_generated_code")
+                    logging.info(f"[SEARCH] Coder agent detected SOURCE code in response - calling _save_generated_code")
                     await self._save_generated_code(response_content, message.conversation_id, file_type="src")
                     logging.info(f"[DEBUG] _save_generated_code completed")
                 else:
