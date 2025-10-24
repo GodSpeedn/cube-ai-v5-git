@@ -960,7 +960,7 @@ class OnlineWorkflowManager:
                 metadata={
                     "from_agent_role": target_agent.config.role,
                     "from_agent_name": target_agent.config.name,
-                    "from_agent_model": target_agent.config.model_name,
+                    "from_agent_model": target_agent.config.model,
                     "to_agent_role": agents.get(current_message.from_agent).config.role if agents.get(current_message.from_agent) else "unknown",
                     "to_agent_name": agents.get(current_message.from_agent).config.name if agents.get(current_message.from_agent) else "unknown"
                 }
