@@ -507,7 +507,7 @@ If you find this project useful, please consider giving it a star! ⭐
 
 <div align="center">
 
-**Built with ❤️ by the AI Agent System Team**
+**Built with ❤️ by Narayan and Team**
 
 [⬆ Back to Top](#-ai-agent-system---offline--online-code-generation)
 
